@@ -224,6 +224,125 @@ That's the skeleton. **Days 2–5 (in the project brief) add the muscle:** the r
 
 ---
 
+## PART 4 — What we actually built (Day 1 as-built reference)
+
+**Live URLs**
+- Dashboard (Firebase Hosting): https://dazzling-lodge-511607-m0.web.app
+- Pipeline service (Cloud Run): https://anvil-733520529727.us-central1.run.app (`/run` triggers the chain, `/api/provenance` returns the log)
+- Repo: https://github.com/Adhi1402/anvil
+
+### 4.1 Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        D["Dashboard<br/>Firebase Hosting<br/>dashboard/public/index.html"]
+    end
+
+    subgraph CR["Cloud Run service: anvil (main.py)"]
+        TA["Travel agent<br/>agents/run.py"]
+        SA["Supplier agent<br/>agents/run.py"]
+        AU["Anvil auditor<br/>anvil/audit.py"]
+        ST["Store helpers<br/>data/store.py"]
+    end
+
+    V["Vertex AI<br/>Gemini 2.5 Flash"]
+    F[("Firestore<br/>mandates<br/>provenance")]
+
+    D -- "Run agent now (GET /run)" --> TA
+    ST -- "read mandate" --> F
+    ST --> TA
+    TA <-- "A2A-style message" --> SA
+    TA -- "proposed action" --> AU
+    AU <-- "mandate + action, JSON schema" --> V
+    AU -- "verdict" --> ST
+    ST -- "append entry" --> F
+    F -- "live onSnapshot listener" --> D
+```
+
+| Layer | Technology | Code |
+|---|---|---|
+| UI | Firebase Hosting, Firestore web SDK (live listener) | `dashboard/public/index.html` |
+| Orchestration / API | Flask on Cloud Run (gunicorn) | `main.py`, `Procfile` |
+| Agents | Plain Python, A2A-style messages | `agents/run.py` |
+| Auditor | Gemini 2.5 Flash on Vertex AI, structured JSON output | `anvil/audit.py` |
+| Data | Firestore (Native mode): `mandates`, `provenance` | `data/store.py` |
+| Security | Firestore rules: public read, no client writes; backend writes via service account | `firestore.rules` |
+
+### 4.2 End-to-end flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor M as Manager
+    participant D as Dashboard
+    participant S as Cloud Run (main.py)
+    participant T as Travel agent
+    participant P as Supplier agent
+    participant A as Anvil auditor
+    participant G as Gemini (Vertex AI)
+    participant F as Firestore
+
+    M->>F: Signs mandate (mandates/mandate-001)
+    D->>S: Click "Run agent now" → GET /run
+    S->>F: Load mandate
+    S->>T: travel_agent(mandate)
+    T->>P: flight_query {destination: Mumbai, max_price: 600}
+    P-->>T: flight_offers [Air India $480 refundable, IndiGo $430 non-refundable]
+    T->>T: Pick best offer under the mandate's rules
+    T-->>S: Proposed action {book_flight, Air India, $480, economy, refundable}
+    S->>A: audit(mandate, action)
+    A->>G: Prompt + response schema (temperature 0)
+    G-->>A: {verdict: MATCH, severity: none, violations: [], explanation}
+    A-->>S: Audit result
+    S->>F: Append entry to provenance
+    F-->>D: onSnapshot pushes the new entry live
+    D-->>M: Green MATCH card with action + explanation
+```
+
+### 4.3 What each component does
+
+**Mandate (data, Owner C)** — the manager's signed authorization, stored in Firestore `mandates/mandate-001`. Fields: traveler, destination (Mumbai), `flight_class` (economy), `max_flight_price_usd` (600), `preferred_airlines` (Air India, IndiGo), `allowed_suppliers` (`supplier-agent-1`), `max_hotel_per_night_usd` (300), `refundable_required` (true), `book_by` (2026-11-01). It is the single source of truth the auditor judges against.
+
+**Travel agent (Owner A)** — acts on the traveler's behalf. It reads the mandate, sends the supplier agent a `flight_query` with the destination and price cap, receives the offers, and picks one. Its ranking: refundable fares first (when the mandate requires them), then preferred airlines, then lowest price. It outputs exactly one *proposed action*:
+`{type: book_flight, supplier, vendor, price, class, refundable, destination}`. It does **not** book anything — it only proposes, and Anvil decides whether the proposal may proceed.
+
+**Supplier agent (Owner A)** — plays the airline/vendor side. It receives the `flight_query`, filters its hard-coded inventory (Air India $480 refundable, IndiGo $430 non-refundable) by destination and price cap, and replies with a `flight_offers` message. Each message is an envelope `{id, from, to, type, body}`, which is the A2A-style contract we can later swap for real A2A.
+
+**Anvil auditor (Owner B)** — the governance layer and the core of the project. It takes the mandate plus the proposed action and asks Gemini to judge whether the action honors the mandate's *letter and intent*, returning schema-constrained JSON so parsing never breaks:
+- `MATCH` (severity none): the action honors the mandate, so allow it.
+- `REVIEW` (severity low): not forbidden but beyond what the human authorized (e.g. over the price cap, non-refundable when refundable is required), so escalate for one-tap re-consent.
+- `DRIFT` (severity high): forbidden or unauthorized (wrong destination or supplier), so block it.
+
+It also contains `rules_baseline()`, a deliberately dumb budget-plus-allowlist check kept for the Day 2 comparison: the same test cases run through both, to show Anvil catches semantic violations the rules miss.
+
+**Provenance log (Owner C)** — an append-only audit trail in Firestore `provenance`. Each entry records timestamp, mandate id, the proposed action, verdict, severity, violations, and Gemini's explanation. This is the "who authorized what, and what was decided" record.
+
+**Pipeline service (`main.py`, Owner D)** — a Flask app on Cloud Run that wires the chain together. `/run` runs mandate → agents → auditor → provenance; `/api/provenance` returns the log; `/` serves a simple server-rendered copy of the log.
+
+**Dashboard (Owner D)** — a static page on Firebase Hosting that subscribes to the `provenance` collection with a live listener, so new verdicts appear without a refresh, color-coded green / amber / red. Its **Run agent now** button calls the Cloud Run `/run` endpoint.
+
+### 4.4 Where the build differs from the plan above
+
+- **Gemini access:** the Gemini call uses **Vertex AI** with the gcloud login instead of an AI Studio key (the AI Studio key's prepaid credits were depleted). No API key is needed; `.env` is not required.
+- **Agents are in-process, not two services:** the travel and supplier agents are Python functions in one Cloud Run service, exchanging real A2A-style message objects. Splitting them into separate services is a later upgrade.
+- **Travel agent is rule-based today:** it ranks offers deterministically rather than calling Gemini. Only the auditor uses Gemini on Day 1.
+- **Two dashboards:** the Firebase page is the official one; the Cloud Run `/` page is a server-rendered fallback.
+- **Public demo access:** the Cloud Run service is unauthenticated and the Firestore rules allow public reads. Lock both down before the final demo.
+- **Cloud Run build permissions:** the first deploy failed until the default Compute service account was given Cloud Build, Storage, Artifact Registry and Logging roles. It also needs `roles/datastore.user` and `roles/aiplatform.user` at runtime.
+
+### 4.5 Run it yourself
+
+```
+python -m agents.run        # prints one proposed action
+python -m anvil.audit       # prints MATCH JSON + rules_baseline result
+python main.py              # local server; open http://localhost:8080/run
+gcloud run deploy anvil --source . --region us-central1 --allow-unauthenticated
+firebase deploy --only hosting,firestore
+```
+
+---
+
 ### If you get stuck
 - **gcloud auth errors:** re-run `gcloud auth login` and `gcloud auth application-default login`.
 - **Cloud Run deploy fails:** check the API is enabled (Step 4) and you're in the right region (`us-central1`).
