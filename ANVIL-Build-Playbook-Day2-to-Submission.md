@@ -61,8 +61,8 @@ Lock these now so every decision serves them.
 
 **Day 2 theme:** make the skeleton *trustworthy and measurable*. By tonight the mandate is cryptographically signed, provenance is tamper-evident, and you can run a set of scenarios through Anvil **and** the baseline and see a scoreboard.
 
-### Step A1 — Sign & verify the mandate (AP2-style) · Owner C
-A signed mandate is the whole premise ("prove a human authorized this"). Keep it simple and real: HMAC-sign the canonical mandate JSON.
+### Step A1 — Sign & verify the mandate (AP2 Intent Mandate) · Owner C
+A signed mandate is the whole premise ("prove a human authorized this"). Keep it simple and real: HMAC-sign the canonical mandate JSON. **This `sign`/`verify` pair is the signature primitive for AP2 — in [Appendix F](#appendix-f--making-a2a--ap2-real-proper-protocol-not-just-style) you wrap it into a proper AP2 *Intent Mandate* (and later a *Cart Mandate*) with the real protocol fields. Do the signing here on Day 2; promote it to the Intent Mandate shape the same day.**
 
 Add to `data/store.py`:
 ```python
@@ -295,7 +295,7 @@ Re-run the eval after prompt tweaks. Confirm temp 0 gives **stable** verdicts ac
 **Day 4 theme:** depth + polish. One signed mandate drives **three** agents; the provenance records the **delegation chain**; and the dashboard becomes something a judge calls "professional."
 
 ### Step C1 — Hotel + transport agents (one mandate, many agents) · Owner A
-Mirror the flight pattern with two more supplier exchanges.
+Mirror the flight pattern with two more supplier exchanges. **Before you add agents, do [Appendix F1](#appendix-f--making-a2a--ap2-real-proper-protocol-not-just-style) first — upgrade the agent messaging to real A2A (Agent Cards + discovery + Message/Task shape).** Then every new agent (hotel, transport) gets its own Agent Card and is discovered, not hard-coded — that's what makes "multi-agent over A2A" a true claim.
 
 Add to `agents/run.py`:
 ```python
@@ -436,6 +436,113 @@ Walk the rubric and the submission checklist (top of this doc) line by line. Sub
 
 ## Daily end-of-day ritual (every day)
 1. Deploy to the live URL. 2. Click the demo path end-to-end. 3. `git commit && git push`. 4. One-line standup in the group chat: what's demo-ready now.
+
+---
+---
+
+# Appendix F — Making A2A & AP2 *real* (proper protocol, not just "style")
+
+The brief promises **A2A** and **AP2**, and the required stack lists both. Day 1 shipped approximations: an ad-hoc message envelope ("A2A-style") and a plain mandate dict with no signature. This appendix upgrades them to faithfully implement the **actual protocols' core objects**, so "we use A2A and AP2" is defensible in front of judges.
+
+**Two tiers:** do **Tier 1** so every claim is literally true; add **Tier 2** only if time allows. Owner A leads A2A (F1), Owner C leads AP2 (F2).
+
+## F1 · A2A done properly (Owner A)
+Real A2A has three things the MVP skipped: **Agent Cards** (discovery), **Messages made of parts**, and **Tasks with a lifecycle** — exchanged over JSON-RPC.
+
+**(a) Agent Cards + discovery.** Each agent publishes a card at `/.well-known/agent-card.json`:
+```python
+SUPPLIER_CARD = {
+  "protocolVersion": "0.3.0",
+  "name": "Flight Supplier Agent",
+  "description": "Returns flight offers for a destination under a price cap.",
+  "url": "https://<supplier-service>.run.app/a2a",
+  "preferredTransport": "JSONRPC",
+  "capabilities": {"streaming": False},
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [{"id": "flight_search", "name": "Flight search",
+              "description": "Find flights to a destination under a max price.",
+              "tags": ["travel", "flights"]}],
+}
+```
+Serve it (`@app.route("/.well-known/agent-card.json")` → return the card). The travel agent **fetches the card first** (discovery), reads the skill + URL, then sends — instead of hard-coding the supplier. That one change ("we discover agents via their Agent Card") is what makes the A2A claim real.
+
+**(b) A2A Message + Task shapes.** Replace the ad-hoc `message()` envelope with A2A objects:
+```python
+import uuid
+
+def a2a_message(role, data):                     # role: "user" | "agent"
+    return {"kind": "message", "role": role, "messageId": str(uuid.uuid4()),
+            "parts": [{"kind": "data", "data": data}]}
+
+def a2a_task(task_id, state, result=None):        # state: submitted|working|completed|failed
+    return {"kind": "task", "id": task_id, "status": {"state": state},
+            "artifacts": ([{"parts": [{"kind": "data", "data": result}]}] if result else [])}
+```
+The supplier receives a `message/send`, opens a Task (`working` → `completed`), and returns it with the offers as an **artifact**. That is the real A2A request/response shape.
+
+**(c) Transport (JSON-RPC).** Expose one endpoint `POST /a2a` that accepts
+`{"jsonrpc":"2.0","method":"message/send","params":{"message":{…}},"id":1}` and returns the Task in `result`. Spec-compliant transport, ~15 lines.
+
+> **Tier 2:** adopt the official **`a2a-sdk`** (a2a-python) for a spec-complete server/client. The faithful hand-rolled objects above are enough to defend the claim; the SDK is polish, and it's an extra dependency to debug on a deadline — only if Owner A is ahead.
+
+## F2 · AP2 done properly (Owner C)
+AP2's core is **two signed mandates** that ride on A2A. Day 2's HMAC signing was the right primitive — now give the mandates AP2's actual structure and add the **Cart Mandate**.
+
+**(a) Intent Mandate** — the human's authorization (this is what Step A1 becomes):
+```python
+def intent_mandate(user, constraints):
+    m = {
+      "type": "IntentMandate",
+      "mandateId": "mandate-001",
+      "user": user,                     # who authorized (the manager)
+      "constraints": constraints,       # destination, class, caps, preferred airlines, refundable, book_by
+      "issuedAt": datetime.now(timezone.utc).isoformat(),
+      "expiresAt": "2026-11-01T00:00:00Z",
+      "nonce": uuid.uuid4().hex,
+    }
+    return sign_mandate(m)              # the signature primitive from Step A1
+```
+
+**(b) Cart Mandate** — issued when an action **passes** Anvil (the brief's "Allow → AP2 Cart Mandate and books"):
+```python
+def cart_mandate(intent, action):
+    c = {
+      "type": "CartMandate",
+      "cartId": uuid.uuid4().hex,
+      "intentMandateId": intent["mandateId"],      # links the booking back to the human approval
+      "merchant": action["supplier"],
+      "items": [{"name": action.get("vendor"), "kind": action["type"], "amount": action["price"]}],
+      "currency": "USD",
+      "total": action["price"],
+      "authorizedBy": intent["user"],
+      "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return sign_mandate(c)
+```
+Rules that make it faithful to AP2's lifecycle:
+- Anvil **verifies the Intent Mandate signature before auditing** (reject tampered authorizations).
+- A **Cart Mandate is signed and issued only after a MATCH** — or after a human approves a REVIEW. A DRIFT never gets one.
+- Both mandates are stored in the provenance log; the Cart Mandate's `intentMandateId` is the thread back to the one human approval (this *is* your delegation/provenance story).
+
+**(c) The roles map.** AP2 names roles — map yours and say it in the pitch: *user* = the manager; *shopping / credentials agent* = your travel agent; *merchant agent* = the supplier agent. Naming the roles shows you understand the protocol, not just the acronym.
+
+> **Tier 2:** carry the mandates as **A2A DataParts** (the mandate travels inside the agent message), and model the signatures as W3C **Verifiable Credentials** (AP2's real mechanism). If you don't reach this, say "VCs are how we'd productionize the signatures" — honest and credible.
+
+## F3 · What you may claim (honesty guard — judges reward precision)
+- ✅ After F1: *"We implement A2A's Agent Card discovery and the Message/Task model over JSON-RPC."*
+- ✅ After F2: *"We implement AP2's signed Intent- and Cart-Mandate lifecycle, verified before every action."*
+- ⚠️ Say *"fully SDK-compliant"* **only** if you actually adopt the official SDKs (Tier 2). Otherwise say *"faithful to the A2A / AP2 model."* Never overclaim a standard — one sharp judge question can sink it.
+
+## F4 · Where this lands in the schedule (no new days)
+| Piece | When | Hook |
+|---|---|---|
+| AP2 **Intent Mandate** | **Day 2** | Upgrade Step A1 → `intent_mandate()` |
+| A2A **Agent Cards + Message/Task + JSON-RPC** | **Day 4** | Do F1 at the start of Step C1, before adding hotel/transport |
+| AP2 **Cart Mandate** | **Day 3–4** | Issue inside `book_with_guard` on MATCH / after REVIEW approval |
+| Each sub-agent gets its **own Agent Card**; discovery runs once at trip start | **Day 4** | Step C1 |
+
+This is a few hours of focused work, not a rebuild — you already have the agents, the messages, and the signing primitive. F1 + F2 Tier 1 turn "A2A-style / AP2-inspired" into "A2A and AP2," which is exactly what the brief and the required stack promise.
 
 ---
 

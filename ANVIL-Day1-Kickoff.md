@@ -302,7 +302,7 @@ sequenceDiagram
 
 ### 4.3 What each component does
 
-**Mandate (data, Owner C)** — the manager's signed authorization, stored in Firestore `mandates/mandate-001`. Fields: traveler, destination (Mumbai), `flight_class` (economy), `max_flight_price_usd` (600), `preferred_airlines` (Air India, IndiGo), `allowed_suppliers` (`supplier-agent-1`), `max_hotel_per_night_usd` (300), `refundable_required` (true), `book_by` (2026-11-01). It is the single source of truth the auditor judges against.
+**Mandate (data, Owner C)** — the manager's authorization, stored in Firestore `mandates/mandate-001` as a signed **AP2 Intent Mandate** (added Day 2): `{type: "IntentMandate", mandateId, user, constraints, issuedAt, expiresAt, nonce, signature}`. The signature is an HMAC-SHA256 over the canonical JSON, and `/run` refuses (HTTP 403) if it doesn't verify. `constraints` holds the terms: destination (Mumbai), `flight_class` (economy), `max_flight_price_usd` (600), `preferred_airlines` (Air India, IndiGo), `allowed_suppliers` (`supplier-agent-1`), `max_hotel_per_night_usd` (300), `refundable_required` (true), `book_by` (2026-11-01). The agents and the auditor work from `constraints`; it is the single source of truth the auditor judges against.
 
 **Travel agent (Owner A)** — acts on the traveler's behalf. It reads the mandate, sends the supplier agent a `flight_query` with the destination and price cap, receives the offers, and picks one. Its ranking: refundable fares first (when the mandate requires them), then preferred airlines, then lowest price. It outputs exactly one *proposed action*:
 `{type: book_flight, supplier, vendor, price, class, refundable, destination}`. It does **not** book anything — it only proposes, and Anvil decides whether the proposal may proceed.
@@ -316,7 +316,7 @@ sequenceDiagram
 
 It also contains `rules_baseline()`, a deliberately dumb budget-plus-allowlist check kept for the Day 2 comparison: the same test cases run through both, to show Anvil catches semantic violations the rules miss.
 
-**Provenance log (Owner C)** — an append-only audit trail in Firestore `provenance`. Each entry records timestamp, mandate id, the proposed action, verdict, severity, violations, and Gemini's explanation. This is the "who authorized what, and what was decided" record.
+**Provenance log (Owner C)** — an append-only audit trail in Firestore `provenance`. Each entry records timestamp, mandate id, the proposed action, verdict, severity, violations, and Gemini's explanation, plus `prev_hash` and `hash` (Day 2) so the log is a tamper-evident hash chain. The chain head and `verify_chain()` follow the hash links, not timestamps, so clock differences between laptops and Cloud Run can't fork it. This is the "who authorized what, and what was decided" record.
 
 **Pipeline service (`main.py`, Owner D)** — a Flask app on Cloud Run that wires the chain together. `/run` runs mandate → agents → auditor → provenance; `/api/provenance` returns the log; `/` serves a simple server-rendered copy of the log.
 

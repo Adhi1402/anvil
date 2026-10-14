@@ -34,13 +34,14 @@ def dashboard():
 
 @app.route("/run", methods=["GET", "POST"])
 def run():
-    mandate = get_mandate()
-    if not verify_mandate(mandate):
+    intent = get_mandate()
+    if not verify_mandate(intent):
         return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
+    mandate = intent["constraints"]
     action = travel_agent(mandate)
     result = audit(mandate, action)
-    entry_id = log_provenance(mandate["id"], action, result)
-    out = {"mandate": mandate, "action": action, "audit": result,
+    entry_id = log_provenance(intent["mandateId"], action, result)
+    out = {"mandate": intent, "action": action, "audit": result,
            "rules_baseline_pass": rules_baseline(mandate, action), "provenance_id": entry_id}
     from flask import request, redirect
     return redirect("/") if request.method == "POST" else jsonify(out)
