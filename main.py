@@ -5,7 +5,7 @@ import os
 from flask import Flask, jsonify
 from agents.run import travel_agent
 from anvil.audit import audit, rules_baseline
-from data.store import get_mandate, log_provenance, list_provenance
+from data.store import get_mandate, verify_mandate, log_provenance, list_provenance
 
 app = Flask(__name__)
 
@@ -35,6 +35,8 @@ def dashboard():
 @app.route("/run", methods=["GET", "POST"])
 def run():
     mandate = get_mandate()
+    if not verify_mandate(mandate):
+        return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
     action = travel_agent(mandate)
     result = audit(mandate, action)
     entry_id = log_provenance(mandate["id"], action, result)
@@ -42,6 +44,12 @@ def run():
            "rules_baseline_pass": rules_baseline(mandate, action), "provenance_id": entry_id}
     from flask import request, redirect
     return redirect("/") if request.method == "POST" else jsonify(out)
+
+
+@app.route("/api/eval")
+def api_eval():
+    from anvil.eval import run_eval
+    return jsonify(run_eval())
 
 
 @app.route("/api/provenance")
