@@ -1,8 +1,9 @@
 """Anvil drift auditor: mandate + proposed action -> MATCH | REVIEW | DRIFT."""
 import json
 import os
+import time
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 _client = None
@@ -53,14 +54,18 @@ def _client_():
 
 
 def audit(mandate, action):
-    resp = _client_().models.generate_content(
-        model=MODEL,
-        contents=PROMPT.format(mandate=json.dumps(mandate, indent=2), action=json.dumps(action, indent=2)),
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json", response_schema=SCHEMA, temperature=0
-        ),
+    contents = PROMPT.format(mandate=json.dumps(mandate, indent=2), action=json.dumps(action, indent=2))
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json", response_schema=SCHEMA, temperature=0
     )
-    return json.loads(resp.text)
+    for attempt in range(5):                       # ride out quota (429) / overload (503) blips
+        try:
+            resp = _client_().models.generate_content(model=MODEL, contents=contents, config=config)
+            return json.loads(resp.text)
+        except errors.APIError as e:
+            if e.code not in (429, 500, 503) or attempt == 4:
+                raise
+            time.sleep(2 ** attempt)
 
 
 def rules_baseline(mandate, action):

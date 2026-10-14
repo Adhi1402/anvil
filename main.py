@@ -2,10 +2,12 @@
 import html
 import json
 import os
-from flask import Flask, jsonify
+from google.cloud.firestore_v1.base_query import FieldFilter
+from flask import Flask, jsonify, request, redirect
 from agents.run import travel_agent
 from anvil.audit import audit, rules_baseline
-from data.store import get_mandate, verify_mandate, log_provenance, list_provenance
+from anvil.guard import book_with_guard
+from data.store import db, get_mandate, verify_mandate, log_provenance, list_provenance
 
 app = Flask(__name__)
 
@@ -43,8 +45,52 @@ def run():
     entry_id = log_provenance(intent["mandateId"], action, result)
     out = {"mandate": intent, "action": action, "audit": result,
            "rules_baseline_pass": rules_baseline(mandate, action), "provenance_id": entry_id}
-    from flask import request, redirect
     return redirect("/") if request.method == "POST" else jsonify(out)
+
+
+@app.route("/run/<scenario>", methods=["GET", "POST"])
+def run_scenario(scenario):
+    """Fire a named scenario on demand: guard logs every step (block, then self-correction)."""
+    from data.scenarios import SCENARIOS
+    intent = get_mandate()
+    if not verify_mandate(intent):
+        return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
+    mandate = intent["constraints"]
+    s = next((x for x in SCENARIOS if x["name"].lower().startswith(scenario.lower())), None)
+    action = s["action"] if s else travel_agent(mandate)
+    steps = book_with_guard(mandate, action)
+    for st in steps:
+        st["provenance_id"] = log_provenance(intent["mandateId"], st["action"], st["audit"])
+    return jsonify(steps)
+
+
+def _resolve_review(entry_id, approved):
+    """Human re-consent on a REVIEW entry: appends a new provenance entry, once per REVIEW."""
+    doc = db().collection("provenance").document(entry_id).get()
+    if not doc.exists:
+        return jsonify({"error": "no such provenance entry"}), 404
+    e = doc.to_dict()
+    if e["verdict"] != "REVIEW":
+        return jsonify({"error": "only REVIEW entries need approval"}), 400
+    if list(db().collection("provenance").where(filter=FieldFilter("action.re_consent_for", "==", entry_id)).limit(1).stream()):
+        return jsonify({"error": "already resolved"}), 409
+    verdict = "APPROVED" if approved else "REJECTED"
+    audit_like = {"verdict": verdict, "severity": "none", "violations": [],
+                  "explanation": ("Human re-consented: manager approved the escalated action."
+                                  if approved else "Manager rejected the escalated action; it will not proceed.")}
+    action = {**e["action"], "re_consent_for": entry_id}
+    new_id = log_provenance(e["mandate_id"], action, audit_like)
+    return jsonify({"verdict": verdict, "provenance_id": new_id})
+
+
+@app.route("/approve/<entry_id>", methods=["POST"])
+def approve(entry_id):
+    return _resolve_review(entry_id, True)
+
+
+@app.route("/reject/<entry_id>", methods=["POST"])
+def reject(entry_id):
+    return _resolve_review(entry_id, False)
 
 
 @app.route("/api/eval")

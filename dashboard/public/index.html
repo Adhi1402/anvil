@@ -10,6 +10,10 @@
   button{padding:.5rem 1rem;font-size:1rem;cursor:pointer}
   .e{border:1px solid #d0d7de;border-radius:8px;padding:.8rem;margin:.7rem 0}
   .MATCH{border-left:6px solid #1a7f37}.REVIEW{border-left:6px solid #bf8700}.DRIFT{border-left:6px solid #cf222e}
+  .APPROVED{border-left:6px solid #1a7f37}.REJECTED{border-left:6px solid #cf222e}
+  .needs{background:#fff8c5;color:#1f2328;border-radius:6px;padding:.5rem .7rem;margin-top:.4rem}
+  .needs button{margin-right:.4rem}
+  .scen{margin:.6rem 0} .scen button{margin:.15rem .25rem .15rem 0;font-size:.9rem}
   .tag{font-weight:700} pre{white-space:pre-wrap;margin:.3rem 0;font-size:.9rem}
   @media (prefers-color-scheme:dark){body{background:#0d1117;color:#e6edf3}.e{border-color:#30363d}}
 </style>
@@ -18,6 +22,13 @@
 <h1>Anvil provenance log</h1>
 <p class="sub">Live from Firestore &middot; <span id="count">0</span> entries</p>
 <button id="run">Run agent now</button> <span id="status"></span>
+<div class="scen">Scenarios:
+  <button data-s="clean">Clean booking</button>
+  <button data-s="over-cap">Over-cap (REVIEW)</button>
+  <button data-s="non-refundable">Non-refundable (REVIEW)</button>
+  <button data-s="business">Business upgrade (DRIFT)</button>
+  <button data-s="fare">Fare split (DRIFT)</button>
+</div>
 <div id="list"></div>
 
 <script type="module">
@@ -36,16 +47,39 @@ const AGENT_URL = "https://anvil-733520529727.us-central1.run.app/run";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+const BASE = "https://anvil-733520529727.us-central1.run.app";
+
 onSnapshot(query(collection(db, "provenance"), orderBy("ts", "desc"), limit(25)), snap => {
   document.getElementById("count").textContent = snap.size;
-  document.getElementById("list").innerHTML = snap.docs.map(d => {
-    const e = d.data();
+  const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const resolved = {};                       // REVIEW id -> APPROVED | REJECTED
+  rows.forEach(e => { if (e.action && e.action.re_consent_for) resolved[e.action.re_consent_for] = e.verdict; });
+  document.getElementById("list").innerHTML = rows.map(e => {
+    let extra = "";
+    if (e.verdict === "REVIEW") {
+      extra = resolved[e.id]
+        ? `<div class="needs">Manager ${esc(resolved[e.id].toLowerCase())} this.</div>`
+        : `<div class="needs"><b>Needs manager approval</b> &mdash; not forbidden, but beyond what was authorized.<br>
+             <button data-act="approve" data-id="${esc(e.id)}">Approve</button>
+             <button data-act="reject" data-id="${esc(e.id)}">Reject</button></div>`;
+    }
+    const fix = e.action && e.action.replan_reason ? `<pre>Self-corrected after block: ${esc(e.action.replan_reason)}</pre>` : "";
     return `<div class="e ${esc(e.verdict)}"><span class="tag">${esc(e.verdict)}</span> (${esc(e.severity)})
       &middot; ${esc(e.ts)} &middot; mandate ${esc(e.mandate_id)}
       <pre>Action: ${esc(JSON.stringify(e.action))}</pre>
-      <pre>${esc(e.explanation)}</pre></div>`;
+      <pre>${esc(e.explanation)}</pre>${fix}${extra}</div>`;
   }).join("") || "<p>No entries yet.</p>";
 }, err => { document.getElementById("list").textContent = "Error: " + err.message; });
+
+async function call(path, method) {
+  const s = document.getElementById("status"); s.textContent = "Working...";
+  try { await fetch(BASE + path, { method, mode: "no-cors" }); s.textContent = "Done."; }
+  catch (e) { s.textContent = "Failed: " + e.message; }
+}
+document.querySelector(".scen").onclick = ev => { const k = ev.target.dataset.s; if (k) call("/run/" + k, "POST"); };
+document.getElementById("list").onclick = ev => {
+  const { act, id } = ev.target.dataset; if (act) call("/" + act + "/" + id, "POST");
+};
 
 document.getElementById("run").onclick = async () => {
   const s = document.getElementById("status"); s.textContent = "Running agent...";

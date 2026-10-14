@@ -4,6 +4,7 @@ import uuid
 SUPPLIER_ID = "supplier-agent-1"
 INVENTORY = [
     {"vendor": "Air India", "price": 480, "class": "economy", "refundable": True, "destination": "Mumbai"},
+    {"vendor": "Air India", "price": 520, "class": "economy", "refundable": True, "destination": "Mumbai"},
     {"vendor": "IndiGo", "price": 430, "class": "economy", "refundable": False, "destination": "Mumbai"},
 ]
 
@@ -29,6 +30,22 @@ def travel_agent(mandate):
     best = sorted(offers, key=lambda o: (mandate.get("refundable_required") and not o["refundable"],
                                            o["vendor"] not in mandate["preferred_airlines"], o["price"]))[0]
     return {"type": "book_flight", "supplier": reply["from"], **best}
+
+
+def replan(mandate, reason=""):
+    """Strict planner: honor class, preferred airlines, refundability, cap. Used after a block."""
+    query = message("travel-agent", SUPPLIER_ID, "flight_query",
+                    {"destination": mandate["destination"], "max_price": mandate["max_flight_price_usd"]})
+    offers = supplier_agent(query)["body"]["offers"]
+    compliant = [o for o in offers
+                 if o["class"] == mandate["flight_class"]
+                 and o["vendor"] in mandate["preferred_airlines"]
+                 and (not mandate.get("refundable_required") or o["refundable"])
+                 and o["price"] <= mandate["max_flight_price_usd"]]
+    if not compliant:
+        return None
+    best = sorted(compliant, key=lambda o: o["price"])[0]
+    return {"type": "book_flight", "supplier": SUPPLIER_ID, "replan_reason": reason, **best}
 
 
 if __name__ == "__main__":
