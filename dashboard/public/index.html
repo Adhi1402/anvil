@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Anvil Dashboard</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#1f2328}
+  h1{margin-bottom:.2rem} .sub{color:#656d76;margin-top:0}
+  button{padding:.5rem 1rem;font-size:1rem;cursor:pointer}
+  .e{border:1px solid #d0d7de;border-radius:8px;padding:.8rem;margin:.7rem 0}
+  .MATCH{border-left:6px solid #1a7f37}.REVIEW{border-left:6px solid #bf8700}.DRIFT{border-left:6px solid #cf222e}
+  .tag{font-weight:700} pre{white-space:pre-wrap;margin:.3rem 0;font-size:.9rem}
+  @media (prefers-color-scheme:dark){body{background:#0d1117;color:#e6edf3}.e{border-color:#30363d}}
+</style>
+</head>
+<body>
+<h1>Anvil provenance log</h1>
+<p class="sub">Live from Firestore &middot; <span id="count">0</span> entries</p>
+<button id="run">Run agent now</button> <span id="status"></span>
+<div id="list"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, collection, query, orderBy, limit, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const app = initializeApp({
+  apiKey: "AIzaSyCnda1Y64OGWHXepXDwD6PhiGzwNuj1iMs",
+  authDomain: "dazzling-lodge-511607-m0.firebaseapp.com",
+  projectId: "dazzling-lodge-511607-m0",
+  appId: "1:733520529727:web:ee7cd8da0c036d62896b8a"
+});
+const db = getFirestore(app);
+const AGENT_URL = "https://anvil-733520529727.us-central1.run.app/run";
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+onSnapshot(query(collection(db, "provenance"), orderBy("ts", "desc"), limit(25)), snap => {
+  document.getElementById("count").textContent = snap.size;
+  document.getElementById("list").innerHTML = snap.docs.map(d => {
+    const e = d.data();
+    return `<div class="e ${esc(e.verdict)}"><span class="tag">${esc(e.verdict)}</span> (${esc(e.severity)})
+      &middot; ${esc(e.ts)} &middot; mandate ${esc(e.mandate_id)}
+      <pre>Action: ${esc(JSON.stringify(e.action))}</pre>
+      <pre>${esc(e.explanation)}</pre></div>`;
+  }).join("") || "<p>No entries yet.</p>";
+}, err => { document.getElementById("list").textContent = "Error: " + err.message; });
+
+document.getElementById("run").onclick = async () => {
+  const s = document.getElementById("status"); s.textContent = "Running agent...";
+  try { await fetch(AGENT_URL, { mode: "no-cors" }); s.textContent = "Done."; }
+  catch (e) { s.textContent = "Failed: " + e.message; }
+};
+</script>
+</body>
+</html>

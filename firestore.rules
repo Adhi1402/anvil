@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Dashboard is read-only for the public; only the backend (Admin/IAM) writes.
+    match /provenance/{id} { allow read: if true; allow write: if false; }
+    match /mandates/{id}   { allow read: if true; allow write: if false; }
+    match /{document=**}   { allow read, write: if false; }
+  }
+}
