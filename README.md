@@ -79,15 +79,16 @@ flowchart LR
 |---|---|
 | **Gemini 2.5 Flash on Vertex AI** | The drift auditor: structured JSON verdicts, temperature 0, retries + cached-verdict fallback |
 | **A2A** | Agent Cards + discovery, Message/Task over JSON-RPC between buyer and supplier agents |
-| **AP2** | Signed Intent Mandate (human authorization) and Cart Mandate (per-purchase authorization) |
+| **AP2 (concepts)** | Signed Intent Mandate (human authorization) and Cart Mandate (per-purchase receipt), modelled on AP2, HMAC-signed |
 | **Cloud Run** | Two services: `anvil` (orchestrator, guard, API) and `anvil-suppliers` (A2A supplier agents) |
 | **Firestore** | Mandates, provenance log, verdict/eval caches |
 | **Firebase Hosting** | The live dashboard (real-time Firestore listener) |
 
 ### What we claim (and what we don't)
-- ✅ We implement A2A's **Agent Card discovery** and the **Message/Task model over JSON-RPC**, hand-rolled and faithful to the spec's core objects.
-- ✅ We implement AP2's **signed Intent-Mandate / Cart-Mandate lifecycle**, with the Intent Mandate signature verified before any action is audited.
-- ❌ We do **not** use the official `a2a-sdk` / AP2 SDKs, and mandate signatures are HMAC-SHA256, not W3C Verifiable Credentials (that is how we would productionize them). So: *faithful to the A2A / AP2 model*, not "fully SDK-compliant".
+- ✅ **A2A:** our supplier agents interoperate with the **official `a2a-sdk` client** (v1.2.2): it resolves each Agent Card, negotiates the JSON-RPC interface, calls `message/send` and receives a completed Task with the offers (`scripts/a2a_interop.py`, 3/3 pass against the deployed service). Our own buyer-side client and server are hand-written, speaking protocol 0.3.
+- ✅ **AP2 concepts:** a human-signed mandate that bounds an agent's authority, and a signed per-purchase receipt linked back to it. Our version is **modelled on AP2's Intent/Cart Mandate idea** with HMAC-SHA256 signatures.
+- ❌ We do **not** use the official AP2 SDK. AP2's current V2 uses SD-JWT delegation chains signed with ES256 keys and deterministic constraints (amount range, allowed payees, dates). We spiked the official SDK (`scripts/ap2_spike.py`): it verifies mandate chains and catches overage and unapproved payees, but a business-class swap at the same price passes its constraints. That is the gap Anvil's semantic audit fills, and the reason to stack the two rather than replace one with the other.
+- So: *interoperable with the official A2A client; inspired by AP2, not AP2-compliant.*
 
 ## Repo layout
 
