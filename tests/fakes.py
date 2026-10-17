@@ -75,7 +75,13 @@ class FakeFirestore:
         return self.cols.setdefault(name, _Col())
 
 
+class _Usage:
+    prompt_token_count, candidates_token_count, thoughts_token_count = 900, 60, 140
+
+
 class _Resp:
+    usage_metadata = _Usage()
+
     def __init__(self, text):
         self.text = text
 
@@ -89,6 +95,23 @@ class FakeGemini:
 
     def generate_content(self, model, contents, config):
         FakeGemini.calls += 1
+        if "EMPLOYEE REQUEST" in contents:                      # planner agent
+            req = contents.split('EMPLOYEE REQUEST: "')[1].split('"')[0].lower()
+            sections = {}
+            for block in contents.split("OFFERS (index: offer)\n")[1].split("["):
+                if not block.strip():
+                    continue
+                kind, rest = block.split("]", 1)
+                sections[kind.lower()] = [json.loads(l.split(": ", 1)[1]) for l in rest.strip().splitlines()]
+            legs = []
+            for kind, offers in sections.items():
+                def ok(o):
+                    return o.get("refundable", True) and o.get("class", "economy") == "economy" and o["vendor"] in ("Air India", "Taj", "Uber")
+                want = next((i for i, o in enumerate(offers) if "business" in req and o.get("class") == "business"), None)
+                if want is None:
+                    want = next(i for i, o in enumerate(offers) if ok(o))
+                legs.append({"kind": kind, "choice": want, "rationale": "fake planner"})
+            return _Resp(json.dumps({"legs": legs}))
         if "OFFERS (0-indexed)" in contents:
             offers = [json.loads(l.split(": ", 1)[1]) for l in contents.split("OFFERS (0-indexed):\n")[1].strip().splitlines()]
             for i, o in enumerate(offers):
@@ -110,10 +133,10 @@ class FakeGemini:
 
 def install():
     """Patch the app to use the fakes. Returns (fake_db, flask_app)."""
-    import anvil.audit as audit
+    import anvil.gemini as gemini
     import data.store as store
     fake = FakeFirestore()
     store._db = fake
-    audit._client = FakeGemini()
+    gemini._client = FakeGemini()
     import main
     return fake, main.app

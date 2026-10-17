@@ -8,6 +8,31 @@ Legend for effort: **S** = under 2h · **M** = 2–4h · **L** = 4h+. "Needs Gem
 
 ---
 
+## PLAN v2 (current): scored against the official rubric
+
+Rubric (from the AI Builder Cup screenshot): **Technical Merit & Gen AI 40% · Problem Alignment & Impact 25% · Innovation & Creativity 25% · UX & Solution Design 10%.**
+Required to demonstrate: problem and why it matters · how the solution addresses it · how Google AI is integrated · working prototype · how it is deployed on GCP.
+
+### Weaknesses found in the audit, and the fix for each
+| Weakness | Fix | Rubric |
+|---|---|---|
+| Buyer agents are scripted Python, not agentic | Gemini planner agent: typed request + A2A offers -> chooses each leg, with rationale; scripted fallback | Technical 40 |
+| No cost/latency visibility | One Gemini wrapper records tokens, latency and est. cost per call; stored on every audit | Technical 40 |
+| Run result appears all at once (feels canned) | NDJSON streaming: every step is logged and shown as it happens | Technical + UX |
+| Eval is only friendly cases | 6 adversarial scenarios (fake "pre-approved" notes, prompt injection, authority claims), new `injection` type | Technical + Innovation |
+| Only per-decision view, nothing for operators | Governance Console: `/api/metrics`, agent scorecards, cost and ROI, budget burn, drift analytics | Impact 25 |
+| No way to stop an agent | Kill switch: pause an agent or revoke the mandate; logged to the chain | Innovation 25 |
+| "Audit-ready" is a claim | `/api/evidence` evidence pack (mandate + audits + receipts + chain status) | Impact 25 |
+| Demo log is polluted by tests | "New session" marker (nothing deleted, chain intact); metrics scope to the session | UX / demo |
+| Page looks like a report | Dark "Mission Control" UI: command bar, animated flow diagram, verdict reveals, money meter, governance tab | UX 10 |
+
+### Build order
+1. Backend foundations: Gemini wrapper with telemetry · adversarial scenarios · Gemini planner agent · streaming guard + step persistence · controls (kill switch, session) · `/api/metrics` · `/api/evidence`. Tests, deploy, live smoke.
+2. UI: dark Mission Control + Governance Console on a Firebase preview channel, then promote.
+3. Submission polish: README + deck numbers, requirements-mapping slide, impact stats, video script.
+
+---
+
 ## Status of the baseline work (A1–A3)
 
 Done in code, **not yet validated with live Gemini** and not committed:

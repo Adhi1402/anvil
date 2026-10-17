@@ -45,16 +45,13 @@ OFFERS (0-indexed):
 def _pick_with_gemini(mandate, action, violations, offers):
     """Let Gemini read the auditor's reasons and choose a fix. The pick is still re-audited by the guard."""
     import json
-    from google.genai import types
-    from anvil.audit import MODEL, _client_
+    from anvil.gemini import call_json
     prompt = _PICK_PROMPT.format(
         mandate=json.dumps(mandate, indent=2), action=json.dumps(action), violations=violations or "(none given)",
         offers="\n".join(f"{i}: {json.dumps(o)}" for i, o in enumerate(offers)))
-    cfg = types.GenerateContentConfig(response_mime_type="application/json", response_schema=_PICK_SCHEMA,
-                                      temperature=0)
-    out = json.loads(_client_().models.generate_content(model=MODEL, contents=prompt, config=cfg).text)
+    out, meta = call_json(prompt, _PICK_SCHEMA)
     i = out["choice"]
-    return (offers[i], out["rationale"]) if 0 <= i < len(offers) else (None, out["rationale"])
+    return (offers[i], out["rationale"], meta) if 0 <= i < len(offers) else (None, out["rationale"], meta)
 
 
 def _rule_pick(mandate, kind, offers):
@@ -72,14 +69,15 @@ def replan(mandate, action, violations=""):
     supplier, offers = _offers(kind, {"destination": mandate["destination"], "max_price": mandate.get(_CAP[action["type"]])})
     if not offers:
         return None
+    meta = None
     try:
-        best, why = _pick_with_gemini(mandate, action, violations, offers)
+        best, why, meta = _pick_with_gemini(mandate, action, violations, offers)
     except Exception:
         best, why = _rule_pick(mandate, kind, offers), "rule-based fallback (Gemini unavailable)"
     if not best:
         return None
     return {"type": action["type"], "supplier": supplier, "replan_reason": violations,
-            "replan_rationale": why, **best}
+            "replan_rationale": why, **({"replan_telemetry": meta} if meta else {}), **best}
 
 
 def hotel_agent(mandate):

@@ -1,17 +1,21 @@
 """Anvil walking skeleton: mandate -> travel agent -> Gemini auditor -> Firestore -> dashboard."""
+import hashlib
 import html
 import json
 import os
+import time
 from datetime import datetime, timezone
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
-from flask import Flask, jsonify, request, redirect
+from flask import Flask, Response, jsonify, request, redirect
 from agents.run import travel_agent, plan_trip
+from agents import planner
 from anvil.audit import audit, rules_baseline
-from anvil.guard import book_with_guard
+from anvil.guard import book_with_guard, guard_stream
 from anvil.impact import counterfactual, impact_summary
+from anvil.metrics import metrics_summary
 from data.store import (db, get_mandate, verify_mandate, log_provenance, list_provenance, verify_chain,
-                        delegation_for, cart_mandate)
+                        delegation_for, cart_mandate, get_controls, set_controls)
 
 app = Flask(__name__)
 
@@ -19,6 +23,8 @@ app = Flask(__name__)
 @app.after_request
 def cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"      # public read API for the Firebase-hosted dashboard
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
 
 PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -58,33 +64,131 @@ def run():
     return redirect("/") if request.method == "POST" else jsonify(out)
 
 
-def _log_steps(intent, steps):
+def _log_steps(intent, steps, agent_telemetry=None):
     """Log every step with its 3-hop delegation chain; MATCH steps also get a signed Cart Mandate."""
     for st in steps:
         extra = {"intent_signature": intent["signature"]}
+        tele = st["audit"].get("telemetry")
+        if tele:
+            extra["telemetry"] = tele
+        if agent_telemetry:
+            extra["agent_telemetry"] = agent_telemetry
+            agent_telemetry = None
         if st["audit"]["verdict"] in ("DRIFT", "REVIEW"):
             extra["counterfactual"] = counterfactual(intent["constraints"], st["action"], st["audit"]["verdict"])
         if st["audit"]["verdict"] == "MATCH":
-            extra["cart_mandate"] = cart_mandate(intent, st["action"])
+            extra["cart_mandate"] = st["cart_mandate"] = cart_mandate(intent, st["action"])
         st["provenance_id"] = log_provenance(intent["mandateId"], st["action"], st["audit"],
                                              delegation=delegation_for(intent, st["action"]), extra=extra)
 
 
+def _halt_reason(controls, action):
+    if controls.get("mandate_revoked"):
+        return "mandate revoked by the manager"
+    kind = action.get("type", "").replace("book_", "")
+    if kind in controls.get("paused_agents", []):
+        return f"{kind} agent paused by the manager"
+    return None
+
+
+def _ev(name, **kw):
+    return {"event": name, "t": round(time.time(), 3), **kw}
+
+
+def run_stream(intent, proposals, request_text=None):
+    """The one execution path: proposals [(action, rationale, agent_telemetry)] -> guarded, logged, streamed events.
+    Every step is written to the provenance chain the moment it completes, so Firestore listeners update live too."""
+    mandate, controls = intent["constraints"], get_controls()
+    yield _ev("run_start", request=request_text, legs=len(proposals), controls=controls)
+    for action, rationale, a_tele in proposals:
+        kind = action["type"].replace("book_", "")
+        yield _ev("proposal", kind=kind, action=action, rationale=rationale)
+        pending_tele = a_tele
+        for g in guard_stream(mandate, action, _halt_reason(controls, action)):
+            e = g.pop("event")
+            if e != "audit":
+                yield _ev(e, kind=kind, **g)
+                continue
+            step = {"action": g["action"], "audit": g["audit"], **({"correction_attempt": g["attempt"]} if g["attempt"] else {})}
+            agent_tele = g.get("replan_telemetry") or pending_tele
+            pending_tele = None
+            _log_steps(intent, [step], agent_tele)
+            yield _ev("step", kind=kind, step=step)
+    yield _ev("run_done")
+
+
+def _verified_intent():
+    intent = get_mandate()
+    return intent if verify_mandate(intent) else None
+
+
+def _stream_response(gen):
+    def lines():
+        try:
+            for ev in gen:
+                yield json.dumps(ev) + "\n"
+        except Exception as e:                                    # never leave the UI hanging on a half-open stream
+            yield json.dumps(_ev("error", message=f"{type(e).__name__}: {e}"[:300])) + "\n"
+    return Response(lines(), mimetype="application/x-ndjson", headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"})
+
+
+def _scenario_proposals(mandate, name):
+    from data.scenarios import SCENARIOS
+    name = (name or "").lower()
+    if name == "trip":
+        return [(a, "scripted agent", None) for a in plan_trip(mandate)]
+    s = next((x for x in SCENARIOS if x["name"].lower().startswith(name)), None)
+    return [((s["action"] if s else travel_agent(mandate)), f"scripted scenario: {s['name']}" if s else "scripted agent", None)]
+
+
+@app.route("/stream/request", methods=["POST", "OPTIONS"])
+def stream_request():
+    """Gemini-driven agent: plain-English request -> A2A discovery -> Gemini picks each leg -> guarded, streamed."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+    text = ((request.get_json(silent=True) or {}).get("text") or "").strip()[:500]
+    intent = _verified_intent()
+    if not intent:
+        return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
+    if not text:
+        return jsonify({"error": "empty request"}), 400
+    mandate = intent["constraints"]
+
+    def gen():
+        yield _ev("agent_start", request=text)
+        gathered = planner.gather_offers(mandate)
+        for kind, g in gathered.items():
+            yield _ev("discovered", kind=kind, agent=g["card"], offers=len(g["offers"]))
+        yield _ev("planning")
+        try:
+            plan, meta = planner.choose(mandate, text, gathered)
+        except Exception as e:
+            yield _ev("planner_fallback", message=f"{type(e).__name__}")
+            plan, meta = planner.fallback(mandate), None
+        proposals = [(a, why, meta if i == 0 else None) for i, (a, why) in enumerate(plan)]
+        yield from run_stream(intent, proposals, text)
+    return _stream_response(gen())
+
+
+@app.route("/stream/scenario", methods=["POST", "OPTIONS"])
+def stream_scenario():
+    """Scripted 'rogue agent' scenarios and the clean trip, streamed."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+    intent = _verified_intent()
+    if not intent:
+        return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
+    name = (request.get_json(silent=True) or {}).get("name", "trip")
+    return _stream_response(run_stream(intent, _scenario_proposals(intent["constraints"], name)))
+
+
 @app.route("/run/<scenario>", methods=["GET", "POST"])
 def run_scenario(scenario):
-    """Fire a named scenario on demand ('trip' = flight+hotel+transport). Guard logs every step."""
-    from data.scenarios import SCENARIOS
-    intent = get_mandate()
-    if not verify_mandate(intent):
+    """Fire a named scenario and return the steps as JSON (the streaming endpoints are the live-UI path)."""
+    intent = _verified_intent()
+    if not intent:
         return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
-    mandate = intent["constraints"]
-    if scenario.lower() == "trip":
-        actions = plan_trip(mandate)
-    else:
-        s = next((x for x in SCENARIOS if x["name"].lower().startswith(scenario.lower())), None)
-        actions = [s["action"] if s else travel_agent(mandate)]
-    steps = [st for action in actions for st in book_with_guard(mandate, action)]
-    _log_steps(intent, steps)
+    steps = [e["step"] for e in run_stream(intent, _scenario_proposals(intent["constraints"], scenario)) if e["event"] == "step"]
     return jsonify(steps)
 
 
@@ -136,11 +240,63 @@ def api_eval():
     return jsonify(result)
 
 
+def _recent_entries(limit=500):
+    q = db().collection("provenance").order_by("ts", direction=firestore.Query.DESCENDING).limit(limit)
+    return [{"id": d.id, **d.to_dict()} for d in q.stream()]
+
+
 @app.route("/api/impact")
 def api_impact():
-    """Prevented-spend rollup from the counterfactual receipts in the provenance log."""
-    q = db().collection("provenance").order_by("ts", direction=firestore.Query.DESCENDING).limit(500)
-    return jsonify(impact_summary([d.to_dict() for d in q.stream()]))
+    """Prevented-spend rollup from the counterfactual receipts, scoped to the current session."""
+    since = get_controls().get("session_start") or ""
+    return jsonify(impact_summary([e for e in _recent_entries() if e["ts"] >= since and e["verdict"] in ("MATCH", "REVIEW", "DRIFT")]))
+
+
+@app.route("/api/metrics")
+def api_metrics():
+    """Governance console data: agent scorecards, cost of governance, budget burn, drift analytics, controls."""
+    mandate = get_mandate().get("constraints")
+    return jsonify(metrics_summary(_recent_entries(), get_controls(), mandate))
+
+
+@app.route("/api/control", methods=["POST", "OPTIONS"])
+def api_control():
+    """Operator controls: pause/resume an agent, revoke/restore the mandate, start a fresh demo session.
+    Each change is appended to the provenance chain, so the controls themselves are auditable."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+    body = request.get_json(silent=True) or {}
+    act, agent = body.get("action"), body.get("agent")
+    st = get_controls()
+    paused = set(st["paused_agents"])
+    if act in ("pause", "resume") and agent in ("flight", "hotel", "transport"):
+        (paused.add if act == "pause" else paused.discard)(agent)
+        changes, note = {"paused_agents": sorted(paused)}, f"{agent} agent {'paused' if act == 'pause' else 'resumed'} by the manager"
+    elif act in ("revoke", "restore"):
+        changes, note = {"mandate_revoked": act == "revoke"}, f"mandate {'revoked' if act == 'revoke' else 'restored'} by the manager"
+    elif act == "new_session":
+        changes, note = {"session_start": datetime.now(timezone.utc).isoformat()}, "new demo session started (earlier history is kept in the chain)"
+    else:
+        return jsonify({"error": "unknown control"}), 400
+    state = set_controls(**changes)
+    log_provenance("mandate-001", {"type": "control", "control": act, "agent": agent},
+                   {"verdict": "CONTROL", "severity": "none", "violations": [], "explanation": note.capitalize() + "."})
+    return jsonify(state)
+
+
+@app.route("/api/evidence")
+def api_evidence():
+    """Audit-ready evidence pack for the current session: mandate, every decision, receipts, chain status."""
+    controls, intent = get_controls(), get_mandate()
+    since = controls.get("session_start") or ""
+    entries = sorted([e for e in _recent_entries() if e["ts"] >= since], key=lambda e: e["ts"])
+    ok, broken = verify_chain()
+    pack = {"generated": datetime.now(timezone.utc).isoformat(), "mandate": intent, "signature_valid": verify_mandate(intent),
+            "chain_ok": ok, "chain_broken_at": broken, "controls": controls, "entries": entries,
+            "metrics": metrics_summary(entries, controls, intent.get("constraints"))}
+    pack["pack_sha256"] = hashlib.sha256(json.dumps(pack, sort_keys=True, default=str).encode()).hexdigest()
+    return Response(json.dumps(pack, indent=2, default=str), mimetype="application/json",
+                    headers={"Content-Disposition": "attachment; filename=anvil-evidence-pack.json"})
 
 
 @app.route("/api/mandate")

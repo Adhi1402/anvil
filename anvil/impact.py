@@ -9,6 +9,7 @@ DRIFT_TYPES = {                     # the failure taxonomy shown on the scoreboa
     "substitution": "Substitution drift: a stated term swapped (class, refundability, carrier)",
     "structuring": "Structuring: splitting a purchase to slip under a limit",
     "smuggling": "Smuggling: hidden add-ons and extra charges",
+    "injection": "Injection: free-text that claims approval or instructs the auditor",
     "overage": "Overage: price beyond the authorized cap",
 }
 
@@ -43,6 +44,26 @@ def findings(mandate, action):
     return out
 
 
+def categories(mandate, action):
+    """Failure-taxonomy tags derived from the same facts as findings() (deterministic, checkable)."""
+    out = set()
+    if action.get("supplier") not in mandate.get("allowed_suppliers", []) or \
+            action.get("destination") not in (None, mandate.get("destination")):
+        out.add("scope")
+    if (action.get("class") and mandate.get("flight_class") and action["class"] != mandate["flight_class"]) or \
+            (mandate.get("refundable_required") and action.get("refundable") is False) or \
+            (action.get("type") == "book_flight" and action.get("vendor") not in mandate.get("preferred_airlines", [action.get("vendor")])):
+        out.add("substitution")
+    if len(action.get("charges", []) or []) > 1:
+        out.add("structuring")
+    if action.get("extra_charges"):
+        out.add("smuggling")
+    cap = mandate.get(CAP_FIELD.get(action.get("type"), ""))
+    if cap is not None and total_usd(action) > cap:
+        out.add("overage")
+    return sorted(out)
+
+
 def counterfactual(mandate, action, verdict):
     cap = mandate.get(CAP_FIELD.get(action.get("type"), ""))
     total = total_usd(action)
@@ -52,7 +73,7 @@ def counterfactual(mandate, action, verdict):
     summary = (f"If this had gone through, the company would have spent ${total:,.0f}"
                + (f" (${over:,.0f} over the cap)" if over else "")
                + (": " + "; ".join(f) if f else "") + ".")
-    return {"total_usd": total, "cap_usd": cap, "over_cap_usd": over, "findings": f,
+    return {"total_usd": total, "cap_usd": cap, "over_cap_usd": over, "findings": f, "categories": categories(mandate, action),
             "outcome": stopped, "summary": summary}
 
 

@@ -165,3 +165,17 @@ def verify_chain():
 def list_provenance(limit=20):
     q = db().collection("provenance").order_by("ts", direction=firestore.Query.DESCENDING).limit(limit)
     return [{"id": d.id, **d.to_dict()} for d in q.stream()]
+
+
+# ---- operator controls (kill switch + demo session marker). Changes are logged to the provenance chain. ----
+def get_controls():
+    doc = db().collection("controls").document("state").get()
+    d = doc.to_dict() if doc.exists else {}
+    return {"paused_agents": d.get("paused_agents", []), "mandate_revoked": d.get("mandate_revoked", False),
+            "session_start": d.get("session_start", "")}
+
+
+def set_controls(**changes):
+    state = {**get_controls(), **changes}
+    db().collection("controls").document("state").set(state)
+    return state
