@@ -38,7 +38,7 @@ AI agents already book travel and spend money on a company's behalf, but nothing
 
 ```mermaid
 flowchart LR
-    M(["Manager"]) -- "signs" --> IM["AP2 Intent Mandate<br/>(HMAC-signed)"]
+    M(["Manager"]) -- "signs" --> IM["Intent Mandate (HMAC)<br/>+ AP2 open mandates (SD-JWT, ES256)"]
     IM --> ORCH
 
     subgraph CR["Cloud Run · anvil"]
@@ -47,7 +47,7 @@ flowchart LR
         ORCH --> HA["Hotel agent"]
         ORCH --> TA["Transport agent"]
         GUARD["Anvil guard<br/>audit → block → self-correct"]
-        CART["AP2 Cart Mandate<br/>(on MATCH / approved REVIEW)"]
+        CART["Cart Mandate + AP2 mandate chain<br/>(on MATCH / approved REVIEW)"]
     end
 
     subgraph SUP["Cloud Run · anvil-suppliers"]
@@ -79,16 +79,16 @@ flowchart LR
 |---|---|
 | **Gemini 2.5 Flash on Vertex AI** | The drift auditor: structured JSON verdicts, temperature 0, retries + cached-verdict fallback |
 | **A2A** | Agent Cards + discovery, Message/Task over JSON-RPC between buyer and supplier agents |
-| **AP2 (concepts)** | Signed Intent Mandate (human authorization) and Cart Mandate (per-purchase receipt), modelled on AP2, HMAC-signed |
+| **AP2 V2 (official SDK)** | Manager-signed open payment mandates and per-booking closed mandates as SD-JWT chains, verified by Google's SDK; deterministic constraints as a second gate. HMAC Intent/Cart Mandates are kept for receipts |
 | **Cloud Run** | Two services: `anvil` (orchestrator, guard, API) and `anvil-suppliers` (A2A supplier agents) |
 | **Firestore** | Mandates, provenance log, verdict/eval caches |
 | **Firebase Hosting** | The live dashboard (real-time Firestore listener) |
 
 ### What we claim (and what we don't)
-- ✅ **A2A:** our supplier agents interoperate with the **official `a2a-sdk` client** (v1.2.2): it resolves each Agent Card, negotiates the JSON-RPC interface, calls `message/send` and receives a completed Task with the offers (`scripts/a2a_interop.py`, 3/3 pass against the deployed service). Our own buyer-side client and server are hand-written, speaking protocol 0.3.
-- ✅ **AP2 concepts:** a human-signed mandate that bounds an agent's authority, and a signed per-purchase receipt linked back to it. Our version is **modelled on AP2's Intent/Cart Mandate idea** with HMAC-SHA256 signatures.
-- ❌ We do **not** use the official AP2 SDK. AP2's current V2 uses SD-JWT delegation chains signed with ES256 keys and deterministic constraints (amount range, allowed payees, dates). We spiked the official SDK (`scripts/ap2_spike.py`): it verifies mandate chains and catches overage and unapproved payees, but a business-class swap at the same price passes its constraints. That is the gap Anvil's semantic audit fills, and the reason to stack the two rather than replace one with the other.
-- So: *interoperable with the official A2A client; inspired by AP2, not AP2-compliant.*
+- ✅ **A2A:** our supplier agents interoperate with the **official `a2a-sdk` client** (v1.2.2): it resolves each Agent Card, negotiates the JSON-RPC interface, calls `message/send` and receives a completed Task with the offers (`scripts/a2a_interop.py`, 3/3 pass against the deployed service). Our buyer-side client and the supplier server are hand-written, speaking protocol 0.3.
+- ✅ **AP2:** every allowed booking also carries an **AP2 V2 mandate chain built and verified with Google's official AP2 SDK** (vendored in `ap2/`, SD-JWT, ES256). The manager signs one *open payment mandate* per leg (amount range = the leg's cap, allowed payees = the approved suppliers) with a key that is **not on the server** (`scripts/ap2_issue.py`). For each booking the orchestrator presents a *closed payment mandate*; the SDK verifies the chain and evaluates the constraints. A constraint violation turns the verdict into DRIFT (fail closed) and the self-correction loop runs. `GET /api/ap2/verify/<entry>` re-verifies a stored chain independently.
+- ✅ **Stacked on purpose:** AP2 constraints are deterministic (amount, payee). They catch overage and unapproved suppliers, but a $590 business-class booking at an approved supplier passes them. That is what Gemini's semantic audit catches. Anvil's original HMAC Intent/Cart Mandates are kept alongside for the receipts and the tamper demo.
+- ❌ Not claimed: "fully AP2-compliant". The payment instrument and payee records are demo values, there is no bank/PISP issuer role, and the orchestrator's private key is an environment variable on Cloud Run (production: Secret Manager or KMS). If the AP2 layer is not configured, or has an infrastructure error, nothing is blocked and behaviour is exactly as before AP2 (the error is recorded on the entry).
 
 ## Repo layout
 
@@ -123,6 +123,8 @@ gcloud run deploy anvil --source . --region us-central1 --allow-unauthenticated 
 firebase deploy --only hosting,firestore
 ```
 
+AP2 layer (optional): run `python scripts/ap2_issue.py` on the manager's machine (keys go to `~/.anvil/`, never the repo), commit `data/ap2_open_mandates.json`, and set `ANVIL_AP2_ORCH_KEY` on Cloud Run as the script prints. Unset = AP2 off. Details and rollback: `docs/AP2-A2A-TRACKER.md`.
+
 Set `ANVIL_SIGNING_KEY` (Cloud Run env var) for a real signing key; the `dev-only-key` default is for local development.
 
 ## Demo endpoints
@@ -131,6 +133,7 @@ Set `ANVIL_SIGNING_KEY` (Cloud Run env var) for a real signing key; the `dev-onl
 |---|---|
 | `POST /stream/request` | Plain-English request → Gemini agent → guarded, streamed events (NDJSON) |
 | `POST /stream/scenario` | Scripted rogue-agent scenarios, streamed |
+| `GET /api/ap2`, `/api/ap2/verify/<id>` | AP2 layer status and independent re-verification of a stored chain |
 | `GET /api/metrics`, `/api/impact`, `/api/evidence` | Governance numbers, prevented spend, audit-ready evidence pack |
 | `POST /api/control` | Pause/resume an agent, revoke/restore the mandate, start a new session (all logged to the chain) |
 | `POST /run/trip` | Flight + hotel + transport over A2A, each audited and logged |

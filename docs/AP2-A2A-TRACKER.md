@@ -49,12 +49,12 @@ Stacked story: AP2 constraints (deterministic: amount range, allowed payees) + A
 - [x] Gate wired in `anvil/guard.py` (`audited()`); `ap2` + `gate` recorded on provenance in `main.py` (`_log_steps`, `_resolve_review`)
 - [x] Endpoints `GET /api/ap2`, `GET /api/ap2/verify/<entry_id>`
 - [x] Metrics `ap2` block: chains_verified, constraint_blocks, manager_overrides, errors
-- [ ] UI: receipt line + Verify button, Governance AP2 card, trail line
+- [x] UI: receipt line + Verify button, Governance AP2 card, trail line, event-stream line, executor label (Firebase Hosting deployed)
 - [x] Tests: `python -m tests.test_e2e_local` ALL PASSED with AP2 on, and `TEST_AP2=0 python -m tests.test_e2e_local` ALL PASSED (pre-AP2 behaviour). Run with the ap2-venv python (needs jwcrypto etc.).
 - [x] Deployed: stage 1 `anvil-00016` (AP2 off, smoke ALL PASSED, runtime Python 3.14.6), stage 2 `anvil-00017` (env `ANVIL_AP2_ORCH_KEY` set, `/api/ap2` enabled:true)
-- [x] Live: `scripts/smoke_live.py` ALL PASSED with AP2 on (new AP2 checks included; eval 19/19 vs 10/19, 0 false blocks, 26/26 stable). [ ] UI browser test after UI changes
-- [ ] Docs: README, deck/slide wording, demo guide (artifact `https://claude.ai/artifact/HA5UwwjRKbo4tDxFSrmAsz`), submission text
-- [ ] Commit (user pushes; this machine has no GitHub credentials)
+- [x] Live: `scripts/smoke_live.py` ALL PASSED with AP2 on (new AP2 checks included; eval 19/19 vs 10/19, 0 false blocks, 26/26 stable). [x] UI browser test on the deployed site (AP2 receipt line, Verify again, trail line, Governance AP2 card, no console errors)
+- [x] Docs: README, deck (slides 3 and 7 wording + regenerated PDF), demo guide artifact v2 (`https://claude.ai/artifact/HA5UwwjRKbo4tDxFSrmAsz`). [ ] Submission-form text: use wording in section 6 below
+- [x] Committed locally (see git log); [ ] USER must push (no GitHub credentials on this machine)
 
 ## 5. Rollback
 Set Cloud Run env `ANVIL_AP2_ORCH_KEY` to empty (or remove it): `gcloud run services update anvil --region us-central1 --remove-env-vars ANVIL_AP2_ORCH_KEY` -> AP2 layer disabled, behaviour identical to pre-AP2. Or `gcloud run services update-traffic anvil --region us-central1 --to-revisions anvil-00014=100`.
@@ -72,3 +72,11 @@ Stage 1 (code only, AP2 off): `gcloud run deploy anvil --source . --region us-ce
 Stage 2 (turn AP2 on): `gcloud run services update anvil --region us-central1 --update-env-vars ANVIL_AP2_ORCH_KEY=$(python3 -c "import base64,os;print(base64.b64encode(open(os.path.expanduser('~/.anvil/ap2-orchestrator.jwk')).read().encode()).decode())")`
 Check: `GET /api/ap2` -> `enabled: true`.
 - 2026-10-17 (late): AP2 live on `anvil-00017`; smoke ALL PASSED. NEXT: UI (receipt line + Verify button, Governance AP2 card, trail line), docs/README/deck/guide/submission text, commit. Rollback if anything misbehaves: remove env var (see section 5).
+- 2026-10-17 (end): ALL DONE except the user's push. Live = Cloud Run `anvil-00017` (AP2 on) + Hosting. Smoke ALL PASSED incl. AP2; eval 19/19 vs 10/19, 0 false blocks, 26/26 stable; browser tests on the deployed site pass. Session reset for demo.
+
+## 9. Submission wording (safe, verified)
+"Our supplier agents interoperate with Google's official A2A Python client (3/3 tested), and every approved booking carries an AP2 V2 mandate chain built and verified with Google's official AP2 SDK. AP2's deterministic constraints act as a second gate after Gemini's semantic audit; a business-class booking at an approved price passes AP2's limits and is caught by Gemini."
+Do not write: "fully A2A/AP2 compliant".
+
+## 10. If resuming in a new session
+1. Read sections 2, 3, 5 above. 2. `git log --oneline | head` to see what landed. 3. `curl <API>/api/ap2` -> `enabled:true` means live. 4. Run `python -m tests.test_e2e_local` (and `TEST_AP2=0 ...`) with the ap2-venv python (needs `pip install -r requirements.txt`), and `python scripts/smoke_live.py`. 5. Keys are in `~/.anvil/` on the user's machine; never regenerate without re-running `scripts/ap2_issue.py`, committing `data/ap2_open_mandates.json`, and updating `ANVIL_AP2_ORCH_KEY`.

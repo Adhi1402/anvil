@@ -129,6 +129,8 @@
   .needs{margin-top:10px;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--amber) 12%,transparent);font-size:13px}
   .needs .btn{margin:8px 6px 0 0}
   .receipt{margin-top:8px;font-size:12px;color:var(--green)}
+  .ap2{margin-top:6px;font-size:12px;color:var(--accent2);display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center}
+  .ap2.bad{color:var(--red)} .ap2.muted{color:var(--muted)} .ap2 .btn{padding:2px 8px;font-size:11px}
 
   /* governance */
   .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
@@ -239,6 +241,7 @@
       <div class="card"><h3>Approved spend vs authorized caps</h3><div id="spend"></div></div>
       <div class="card"><h3>What drifted (failure taxonomy)</h3><div id="types"></div></div>
       <div class="card"><h3>Cost of governing</h3><div id="costbox"></div></div>
+      <div class="card"><h3>AP2 mandates (Google's official SDK)</h3><div id="ap2box"><span class="small">Loading…</span></div></div>
     </div>
 
     <h2>Scoreboard — Anvil vs rules-only baseline</h2>
@@ -291,7 +294,7 @@ const NODES = {
   transport: { x: 420, y: 284, w: 128, label: "Transport agent", sub: "buyer" },
   guard: { x: 640, y: 172, w: 150, label: "ANVIL GUARD", sub: "audit · enforce · correct", cls: "guard" },
   gemini: { x: 640, y: 318, w: 150, label: "Gemini 2.5", sub: "Vertex AI" },
-  exec: { x: 850, y: 172, w: 128, label: "Executor", sub: "simulated booking" },
+  exec: { x: 850, y: 172, w: 128, label: "Executor", sub: "AP2-verified booking" },
 };
 const H = 56;
 const mid = n => [NODES[n].x + NODES[n].w / 2, NODES[n].y + H / 2];
@@ -344,6 +347,14 @@ function actionLine(a) {
   const bits = [a.class, a.refundable === false ? "non-refundable" : a.refundable ? "refundable" : "", a.destination].filter(Boolean).join(" · ");
   return `<div class="big">${esc(a.vendor)} · ${usd(a.price)}${a.type === "book_hotel" ? "/night" : ""}</div><div class="small">${esc(bits)} · via ${esc(a.supplier)}</div>`;
 }
+function ap2Line(a, t) {
+  const x = a.ap2; if (!x) return "";
+  if (x.error) return `<div class="ap2 muted">AP2 layer unavailable for this action: ${esc(x.error)}. Not blocked.</div>`;
+  if (a.source === "ap2-constraints") return `<div class="ap2 bad">🔐 AP2 mandate constraints rejected this (deterministic gate, official SDK)</div>`;
+  if (!x.verified) return "";
+  return `<div class="ap2">🔐 AP2 mandate chain verified by Google's SDK · constraints ✓ · <span class="mono">${esc(x.chain_sha256.slice(0, 10))}…</span> · ${(x.chain_bytes / 1024).toFixed(1)} KB
+    <button class="btn sm" data-ap2="${esc(t.id)}">Verify again</button><span id="ap2r-${esc(t.id)}"></span></div>`;
+}
 function renderLegs() {
   $("legs").innerHTML = Object.entries(KINDS).map(([k, label]) => {
     const L = legs[k];
@@ -359,6 +370,7 @@ function renderLegs() {
         <p class="why">${esc(a.explanation)}</p>
         ${a.violations?.length && a.verdict !== "MATCH" ? `<ul class="viol">${a.violations.map(v => `<li>${esc(v)}</li>`).join("")}</ul>` : ""}
         ${cf ? `<div class="cf">💸 ${esc(cf.summary)}</div>` : ""}
+        ${ap2Line(a, t)}
         ${t.cart ? `<div class="receipt">🧾 Cart Mandate <span class="mono">${esc(t.cart.cartId.slice(0, 10))}…</span> signed · ${usd(t.cart.total)}</div>` : ""}
         ${a.verdict === "REVIEW" ? (t.resolved ? `<div class="needs">Manager ${esc(t.resolved)} this.</div>` : `<div class="needs"><b>Needs manager approval</b> — beyond what was authorized.<br><button class="btn ok sm" data-act="approve" data-id="${esc(t.id)}">Approve</button><button class="btn danger sm" data-act="reject" data-id="${esc(t.id)}">Reject</button></div>`) : ""}</div>`;
     }).join("");
@@ -368,6 +380,11 @@ function renderLegs() {
   }).join("");
 }
 $("legs").onclick = async ev => {
+  const v = ev.target.dataset.ap2;
+  if (v) { ev.target.disabled = true; const out = document.getElementById("ap2r-" + v);
+    try { const r = await api("/api/ap2/verify/" + v); out.textContent = r.verified ? ` ✓ re-verified by the SDK: ${usd(r.amount_minor / 100)} to ${r.payee}, issuer ${r.issuer_kid}` : ` ✗ ${r.error}`; }
+    catch (e) { out.textContent = " ✗ " + e.message; }
+    ev.target.disabled = false; return; }
   const { act, id } = ev.target.dataset; if (!act) return;
   ev.target.disabled = true;
   try {
@@ -404,6 +421,8 @@ async function handle(ev) {
       if (a.verdict === "MATCH") { packet("guard-exec", "var(--green)"); node("exec", "MATCH", 2200); }
       if (ev.step.counterfactual && a.verdict === "DRIFT") { meter.blocked += ev.step.counterfactual.total_usd; paintMeter(true); }
       tick(`<span class="chip ${esc(a.verdict)}">${esc(a.verdict)}</span> ${esc(KINDS[ev.kind])}: ${esc(a.explanation).slice(0, 150)}${a.explanation.length > 150 ? "…" : ""}`, a.verdict);
+      if (a.ap2?.verified && a.verdict === "MATCH") tick(`🔐 <b>AP2 SDK</b> verified the mandate chain · ${usd(a.ap2.amount_minor / 100)} to ${esc(a.ap2.payee)}`, "MATCH");
+      if (a.source === "ap2-constraints") tick(`🔐 <b>AP2 constraints</b> rejected it: ${esc(a.violations.join("; "))}`, "DRIFT");
       renderLegs(); loadChainBadge(); break; }
     case "correction_start": if (legs[ev.kind]) legs[ev.kind].phase = "correcting"; node("guard", "DRIFT", 900); packet("guard-gemini", "var(--red)");
       tick(`Block reason handed back to the ${esc(ev.kind)} agent → re-planning`, "DRIFT"); renderLegs(); break;
@@ -481,6 +500,8 @@ function renderTrail() {
       <p class="expl">${esc(e.explanation)}</p>
       ${e.counterfactual ? `<div class="chainline">💸 ${esc(e.counterfactual.summary)}</div>` : ""}
       ${chain ? `<div class="chainline">Delegation: ${esc(chain)} · mandate ${esc(e.mandate_id)}</div>` : ""}
+      ${e.ap2?.verified ? `<div class="chainline">🔐 AP2 chain <span class="mono">${esc(e.ap2.chain_sha256.slice(0, 10))}…</span> verified · ${usd(e.ap2.amount_minor / 100)} to ${esc(e.ap2.payee)}${e.ap2.manager_override ? " · <b>manager override of AP2 constraint</b>" : ""}</div>` : ""}
+      ${e.gate === "ap2-constraints" ? `<div class="chainline">🔐 Blocked by AP2 mandate constraints</div>` : ""}
       ${e.cart_mandate ? `<div class="chainline">🧾 Cart Mandate <span class="mono">${esc(e.cart_mandate.cartId.slice(0, 10))}…</span> · ${usd(e.cart_mandate.total)}</div>` : ""}
       ${e.telemetry ? `<div class="chainline">⏱ ${(e.telemetry.latency_ms / 1000).toFixed(1)}s · ${e.telemetry.prompt_tokens + e.telemetry.output_tokens} tokens · ${usd4(e.telemetry.cost_usd)}</div>` : ""}
       ${e.hash ? `<div class="chainline mono">hash ${esc(e.hash.slice(0, 16))}… ← ${esc((e.prev_hash || "").slice(0, 8))}…</div>` : ""}</div>`;
@@ -515,7 +536,9 @@ $("replay").onclick = async () => {
 /* ---------------- governance ---------------- */
 let metrics = null;
 const bar = (v, max) => `<div class="bar"><i style="width:${max ? Math.min(100, 100 * v / max) : 0}%"></i></div>`;
+let ap2info = null;
 async function loadMetrics() {
+  try { ap2info = await api("/api/ap2"); } catch { ap2info = null; }
   try { metrics = await api("/api/metrics"); controls = metrics.controls || {}; markPaused(); renderGov(); renderTrail(); } catch (e) { toast("Metrics unavailable: " + e.message); }
 }
 function renderGov() {
@@ -557,6 +580,12 @@ function renderGov() {
     <div class="row"><span>Tokens in / out</span><b>${c.prompt_tokens.toLocaleString()} / ${c.output_tokens.toLocaleString()}</b></div>
     <div class="row"><span>Latency p50 / p95</span><b>${(c.latency_p50_ms / 1000).toFixed(1)}s / ${(c.latency_p95_ms / 1000).toFixed(1)}s</b></div>
     <div class="small" style="margin-top:10px">Estimated from Vertex AI list prices (configurable). Governance adds about ${usd4(c.avg_cost_per_audit_usd)} per decision.</div>`;
+  const A = m.ap2 || {}, I = ap2info;
+  $("ap2box").innerHTML = !I ? '<span class="small">AP2 status unavailable.</span>' : !I.enabled ? `<span class="chip REVIEW">OFF</span> <span class="small">${esc(I.reason || "")}</span>` :
+    `<div class="row"><span class="chip MATCH">ACTIVE</span><span class="small">issuer <span class="mono">${esc(I.issuer_kid)}</span> · SD-JWT · ES256</span></div>
+     <table style="margin-top:8px;min-width:0"><tr><th>Leg</th><th>Open mandate</th></tr>${Object.entries(I.open_mandates).map(([k, v]) => `<tr><td>${esc(KINDS[k])}</td><td>amount ≤ ${usd(v.max_usd)} · payees: ${I.payees.length} approved suppliers</td></tr>`).join("")}</table>
+     <div class="small" style="margin-top:8px">This session: <b>${A.chains_verified || 0}</b> chains verified · <b>${A.constraint_blocks || 0}</b> blocked by AP2 constraints · <b>${A.manager_overrides || 0}</b> manager overrides${A.errors ? ` · <b>${A.errors}</b> errors` : ""}</div>
+     <div class="small" style="margin-top:8px">The manager's signing key is not on the server. AP2 constraints are deterministic (amount, payee); Gemini covers what they cannot, like a class swap at an approved price.</div>`;
   $("evidence").href = BASE + "/api/evidence";
 }
 document.addEventListener("click", async ev => {

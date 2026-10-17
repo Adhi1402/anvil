@@ -70,7 +70,7 @@
   <div class="kicker">What Anvil is</div>
   <h2>A signed mandate in, a verdict and an audit trail out.</h2>
   <div class="flow">
-    <div class="step"><b>1 · Signed mandate</b><span>Manager's limits as an AP2 Intent Mandate (HMAC-signed, verified before every action)</span></div><div class="arr">→</div>
+    <div class="step"><b>1 · Signed mandate</b><span>Manager's limits, signed (HMAC) plus AP2 open mandates signed with the manager's own key</span></div><div class="arr">→</div>
     <div class="step"><b>2 · Agents over A2A</b><span>Flight, hotel, transport agents discover suppliers via Agent Cards, JSON-RPC</span></div><div class="arr">→</div>
     <div class="step"><b>3 · Anvil auditor</b><span>Gemini judges the action against the intent of the mandate; structured JSON</span></div><div class="arr">→</div>
     <div class="step"><b>4 · Decide</b><span><span class="chip MATCH" style="font-size:15px">MATCH</span> allow + Cart Mandate<br><span class="chip REVIEW" style="font-size:15px">REVIEW</span> one-tap re-consent<br><span class="chip DRIFT" style="font-size:15px">DRIFT</span> block + explain</span></div><div class="arr">→</div>
@@ -144,12 +144,12 @@
   <div class="cols c3" style="margin-top:10px">
     <div class="box"><h3>Gemini · Vertex AI</h3><p>The drift auditor: structured JSON verdicts at temperature 0, with retries and a cached-verdict fallback.</p></div>
     <div class="box"><h3>A2A</h3><p>Agent Cards + discovery; Message/Task over JSON-RPC between buyer and supplier agents.</p></div>
-    <div class="box"><h3>AP2</h3><p>Signed Intent Mandate (human authorization) and Cart Mandate (per-purchase), verified before every action.</p></div>
+    <div class="box"><h3>AP2</h3><p>Official AP2 V2 SDK: every approved booking carries a verified SD-JWT mandate chain; its constraints are a second, deterministic gate.</p></div>
     <div class="box"><h3>Cloud Run</h3><p>Two services: orchestrator + guard + API, and the A2A supplier agents.</p></div>
     <div class="box"><h3>Firestore</h3><p>Mandates and the hash-chained, tamper-evident provenance log.</p></div>
     <div class="box"><h3>Firebase Hosting</h3><p>Live dashboard with a real-time Firestore listener.</p></div>
   </div>
-  <p class="muted" style="font-size:19px;margin-top:20px">Hand-rolled, faithful to the A2A / AP2 core objects (not the official SDKs; HMAC signatures, not Verifiable Credentials).</p>
+  <p class="muted" style="font-size:19px;margin-top:20px">Supplier agents pass Google's official A2A client (3/3); mandate chains verified by Google's official AP2 SDK. Buyer client is hand-written; not claimed fully compliant.</p>
   <div class="brand">ANVIL</div><div class="num">7</div>
 </section>
 
