@@ -92,6 +92,27 @@ check("kill switch: resumed agent works again", all(e["step"]["audit"]["verdict"
 pack = get("/api/evidence").json()
 check("evidence pack: valid signature + chain + digest", pack["signature_valid"] and pack["chain_ok"] and len(pack["pack_sha256"]) == 64)
 
+# ---- AP2 (official SDK) layer
+ap2 = get("/api/ap2").json()
+check("ap2: layer enabled with manager-signed open mandates (caps 600/300/100)", ap2.get("enabled") is True and
+      {k: v["max_usd"] for k, v in ap2.get("open_mandates", {}).items()} == {"flight": 600, "hotel": 300, "transport": 100}, ap2)
+code, evs = stream("/stream/scenario", {"name": "trip"})
+asteps = [e["step"] for e in evs if e["event"] == "step"]
+check("ap2: every allowed booking carries a verified SDK chain, 0 constraint violations",
+      len(asteps) == 3 and all(x["audit"].get("ap2", {}).get("verified") and not x["audit"]["ap2"]["violations"] for x in asteps),
+      [x["audit"].get("ap2") for x in asteps])
+rv = get("/api/ap2/verify/" + asteps[0]["provenance_id"]).json()
+check("ap2: independent SDK re-verification of the stored chain passes", rv.get("verified") is True and rv.get("amount_minor") == 48000, rv)
+code, evs = stream("/stream/scenario", {"name": "Over-cap"})
+rid = next(e["step"]["provenance_id"] for e in evs if e["event"] == "step")
+requests.post(BASE + "/approve/" + rid, timeout=60)
+mt2 = get("/api/metrics").json()["ap2"]
+check("ap2: metrics count verified chains and the manager override", mt2["chains_verified"] >= 4 and mt2["manager_overrides"] >= 1 and mt2["errors"] == 0, mt2)
+code, evs = stream("/stream/scenario", {"name": "business"})
+bs = [e["step"]["audit"] for e in evs if e["event"] == "step"]
+check("ap2: Gemini still blocks the class swap that AP2 constraints alone cannot see, and the correction gets an AP2 chain",
+      [b["verdict"] for b in bs][:2] == ["DRIFT", "MATCH"] and bs[0].get("source") != "ap2-constraints" and bs[-1].get("ap2", {}).get("verified"), bs)
+
 print("\nRunning the eval (26 scenarios x2, live Gemini; ~1 min)...")
 ev = get("/api/eval?refresh=1&repeats=2", timeout=290).json()
 s = ev["summary"]

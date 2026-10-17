@@ -2,9 +2,15 @@
 The re-planned action is audited exactly like the original, so the loop can never bypass enforcement.
 guard_stream yields events as they happen (for the live UI); book_with_guard collects them into steps."""
 from agents.run import replan
+from anvil import ap2_layer
 from anvil.audit import audit
 
 MAX_CORRECTIONS = 2
+
+
+def audited(mandate, action):
+    """Gemini's semantic audit, then (if configured) AP2's deterministic mandate constraints as a second gate."""
+    return ap2_layer.gate(mandate, action, audit(mandate, action))
 
 
 def halted_result(reason):
@@ -15,7 +21,7 @@ def halted_result(reason):
 
 def guard_stream(mandate, action, halt=None):
     yield {"event": "audit_start", "action": action}
-    result = halted_result(halt) if halt else audit(mandate, action)
+    result = halted_result(halt) if halt else audited(mandate, action)
     yield {"event": "audit", "action": action, "audit": result, "attempt": 0}
     attempts = 0
     while result["verdict"] == "DRIFT" and not halt and attempts < MAX_CORRECTIONS:
@@ -29,7 +35,7 @@ def guard_stream(mandate, action, halt=None):
         tele = new.pop("replan_telemetry", None)
         action = new
         yield {"event": "audit_start", "action": action, "replan_telemetry": tele}
-        result = audit(mandate, action)
+        result = audited(mandate, action)
         yield {"event": "audit", "action": action, "audit": result, "attempt": attempts, "replan_telemetry": tele}
 
 

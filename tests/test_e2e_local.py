@@ -8,6 +8,15 @@ os.environ.pop("SUPPLIERS_URL", None)            # route A2A calls in-process
 from tests.fakes import install
 
 fake_db, app = install()
+from anvil import ap2_layer
+from data.store import DEMO_MANDATE as _DM
+_CONSTRAINTS = {k: v for k, v in _DM.items() if k not in ("id", "signed_by")}
+AP2_ON = os.environ.get("TEST_AP2", "1") == "1"
+if AP2_ON:
+    ap2_layer.configure_for_tests(_CONSTRAINTS)                       # in-memory ES256 keys + freshly signed open mandates
+else:
+    ap2_layer.configure(ap2_layer.Layer(False, "disabled for this test run"))
+print("AP2 layer:", "ENABLED (official SDK)" if AP2_ON else "DISABLED (pre-AP2 behaviour)")
 c = app.test_client()
 failures = []
 
@@ -155,6 +164,61 @@ check("evidence pack: session-scoped, signed mandate, chain ok, digest", ev.stat
 
 tv = c.get("/api/verify/tamper").get_json()
 check("tamper simulation: breaks the chain without writing", tv["chain_ok"] is False and c.get("/api/verify").get_json()["chain_ok"] is True, tv)
+
+# --- AP2 (official SDK) layer
+st = c.get("/api/ap2").get_json()
+check("ap2 status reflects configuration", st["enabled"] is AP2_ON, st)
+if AP2_ON:
+    check("ap2 status: manager-signed open mandates per leg", {k: v["max_usd"] for k, v in st["open_mandates"].items()} == {"flight": 600, "hotel": 300, "transport": 100}, st)
+    c.post("/api/control", json={"action": "new_session"})
+    code, evs = stream("/stream/scenario", {"name": "trip"})
+    steps = [e["step"] for e in evs if e["event"] == "step"]
+    check("ap2: every MATCH carries a verified SDK chain with no violations", all(x["audit"]["ap2"]["verified"] and x["audit"]["ap2"]["violations"] == [] for x in steps), [x["audit"].get("ap2") for x in steps])
+    check("ap2: the 3 KB chain token is not streamed to the browser", not any("ap2_token" in x["audit"] or "chain_token" in x["audit"]["ap2"] for x in steps))
+    ids = [x["provenance_id"] for x in steps]
+    stored = fake_db.collection("provenance").document(ids[0]).get().to_dict()
+    check("ap2: chain token stored on the provenance entry (JWT hops joined by ~~)", "~~" in stored["ap2"]["chain_token"] and stored["ap2"]["chain_token"].count(".") >= 4)
+    rv = c.get(f"/api/ap2/verify/{ids[0]}").get_json()
+    check("ap2: independent re-verification passes with payee and amount from the signed chain", rv["verified"] is True and rv["amount_minor"] == 48000 and rv["payee"] == "supplier-agent-1" and rv["violations"] == [], rv)
+    check("ap2: verify endpoint rejects entries without a chain / unknown ids", c.get("/api/ap2/verify/nope").status_code == 404)
+    doc = fake_db.collection("provenance").docs[ids[0]]
+    good = doc["ap2"]["chain_token"]
+    first, rest = good.split("~~", 1)
+    jwt0 = first.split("~")[0]; h0, p0, sig0 = jwt0.split(".")
+    doc["ap2"]["chain_token"] = ".".join([h0, p0, sig0[:-2] + ("AA" if not sig0.endswith("AA") else "BB")]) + first[len(jwt0):] + "~~" + rest
+    rv2 = c.get(f"/api/ap2/verify/{ids[0]}").get_json()
+    check("ap2: forged manager signature on a stored chain is rejected", rv2["verified"] is False and "Invalid" in rv2["error"], rv2)
+    doc["ap2"]["chain_token"] = good
+    check("ap2: restored chain verifies again", c.get(f"/api/ap2/verify/{ids[0]}").get_json()["verified"] is True)
+
+    # the deterministic gate: Gemini says MATCH, AP2 constraints disagree -> DRIFT, fail closed
+    match = {"verdict": "MATCH", "severity": "none", "violations": [], "explanation": "x", "source": "live", "telemetry": {"cost_usd": 0.001}}
+    over = {"type": "book_flight", "supplier": "supplier-agent-1", "vendor": "Air India", "price": 660, "class": "economy", "refundable": True, "destination": "Mumbai"}
+    g = ap2_layer.gate(_CONSTRAINTS, over, match)
+    check("ap2 gate: model-approved over-cap action is downgraded to DRIFT by the SDK constraints", g["verdict"] == "DRIFT" and g["source"] == "ap2-constraints" and "exceeds maximum" in g["explanation"], g)
+    g = ap2_layer.gate(_CONSTRAINTS, {**over, "price": 480, "supplier": "shadow-broker-9"}, match)
+    check("ap2 gate: unapproved payee is rejected by the SDK constraints", g["verdict"] == "DRIFT" and "not in allowed list" in g["explanation"], g)
+    g = ap2_layer.gate(_CONSTRAINTS, {**over, "price": 480, "class": "business", "vendor": "Emirates"}, match)
+    check("ap2 gate: a class swap at an approved price PASSES the constraints (that gap is what Gemini covers)", g["verdict"] == "MATCH" and g["ap2"]["violations"] == [], g)
+    g = ap2_layer.gate(_CONSTRAINTS, over, {**match, "verdict": "REVIEW"})
+    check("ap2 gate: only MATCH results are gated", g["verdict"] == "REVIEW" and "ap2" not in g)
+    g = ap2_layer.gate({**_CONSTRAINTS, "max_flight_price_usd": 700}, {**over, "price": 480}, match)
+    check("ap2 gate: stale open mandates are reported but never block (fail-safe)", g["verdict"] == "MATCH" and g["ap2"]["verified"] is False and "stale" in g["ap2"]["error"], g)
+
+    # human override: approving an over-cap REVIEW records the AP2 violation as a manager override
+    code, evs = stream("/stream/scenario", {"name": "Over-cap"})
+    rid = next(e["step"]["provenance_id"] for e in evs if e["event"] == "step")
+    post(f"/approve/{rid}")
+    appr = [d.to_dict() for d in fake_db.collection("provenance").stream() if d.to_dict()["verdict"] == "APPROVED" and d.to_dict()["action"].get("re_consent_for") == rid][0]
+    check("ap2: approved over-cap REVIEW is issued with the violation recorded as a manager override", appr["ap2"]["manager_override"] is True and appr["ap2"]["violations"], appr.get("ap2"))
+    mt = c.get("/api/metrics").get_json()["ap2"]
+    check("ap2 metrics: chains verified and overrides counted", mt["chains_verified"] >= 4 and mt["manager_overrides"] == 1 and mt["errors"] == 0, mt)
+    check("chain still verifies with AP2 data inside it", c.get("/api/verify").get_json()["chain_ok"] is True)
+else:
+    code, evs = stream("/stream/scenario", {"name": "trip"})
+    steps = [e["step"] for e in evs if e["event"] == "step"]
+    check("ap2 disabled: behaviour identical to pre-AP2 (3 MATCH, no ap2 data anywhere)", [x["audit"]["verdict"] for x in steps] == ["MATCH"] * 3 and not any("ap2" in x["audit"] for x in steps))
+    check("ap2 disabled: verify endpoint explains itself", c.get("/api/ap2/verify/" + steps[0]["provenance_id"]).status_code == 400)
 
 # --- tampered intent must stop /run
 from data.store import get_mandate

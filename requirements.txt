@@ -3,3 +3,8 @@ gunicorn
 google-genai
 google-cloud-firestore
 requests
+# AP2 SDK (vendored in ap2/) runtime dependencies, pinned to the versions Google's repo tests against
+cryptography==46.0.5
+jwcrypto==1.5.6
+sd-jwt==0.10.4
+pydantic==2.12.5

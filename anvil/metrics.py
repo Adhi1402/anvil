@@ -67,8 +67,14 @@ def metrics_summary(entries, controls=None, mandate=None):
         caps = {"flight": mandate.get("max_flight_price_usd"), "hotel": mandate.get("max_hotel_per_night_usd"),
                 "transport": mandate.get("max_transport_usd")}
 
+    ap2s = [e["ap2"] for e in entries if e.get("ap2")]
+    ap2 = {"chains_verified": sum(1 for a in ap2s if a.get("verified")),
+           "constraint_blocks": sum(1 for e in entries if e.get("gate") == "ap2-constraints"),
+           "manager_overrides": sum(1 for a in ap2s if a.get("manager_override")),
+           "errors": sum(1 for a in ap2s if a.get("error"))}
     return {
         "since": since,
+        "ap2": ap2,
         "totals": {"actions": len(primary), "match": sum(e["verdict"] == "MATCH" for e in primary),
                    "review": sum(e["verdict"] == "REVIEW" for e in primary),
                    "drift": sum(e["verdict"] == "DRIFT" for e in primary),

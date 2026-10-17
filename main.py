@@ -11,6 +11,7 @@ from flask import Flask, Response, jsonify, request, redirect
 from agents.run import travel_agent, plan_trip
 from agents import planner
 from anvil.audit import audit, rules_baseline
+from anvil import ap2_layer
 from anvil.guard import book_with_guard, guard_stream
 from anvil.impact import counterfactual, impact_summary
 from anvil.metrics import metrics_summary
@@ -71,6 +72,11 @@ def _log_steps(intent, steps, agent_telemetry=None):
         tele = st["audit"].get("telemetry")
         if tele:
             extra["telemetry"] = tele
+        token = st["audit"].pop("ap2_token", None)             # keep the 3 KB chain out of the stream; it is stored on the entry
+        if st["audit"].get("ap2"):
+            extra["ap2"] = {**st["audit"]["ap2"], **({"chain_token": token} if token else {})}
+        if st["audit"].get("source") == "ap2-constraints":
+            extra["gate"] = "ap2-constraints"
         if agent_telemetry:
             extra["agent_telemetry"] = agent_telemetry
             agent_telemetry = None
@@ -211,6 +217,9 @@ def _resolve_review(entry_id, approved):
     extra = {"intent_signature": intent["signature"]}
     if approved:                                   # AP2: a human-approved REVIEW earns a Cart Mandate
         extra["cart_mandate"] = cart_mandate(intent, e["action"])
+        ap2 = ap2_layer.issue_for_override(intent["constraints"], e["action"])
+        if ap2:
+            extra["ap2"] = ap2
     new_id = log_provenance(e["mandate_id"], action, audit_like,
                             delegation=delegation_for(intent, e["action"]), extra=extra)
     return jsonify({"verdict": verdict, "provenance_id": new_id})
@@ -297,6 +306,30 @@ def api_evidence():
     pack["pack_sha256"] = hashlib.sha256(json.dumps(pack, sort_keys=True, default=str).encode()).hexdigest()
     return Response(json.dumps(pack, indent=2, default=str), mimetype="application/json",
                     headers={"Content-Disposition": "attachment; filename=anvil-evidence-pack.json"})
+
+
+@app.route("/api/ap2")
+def api_ap2():
+    """Status of the official-AP2-SDK layer: enabled?, the manager-signed open mandates, key ids."""
+    return jsonify(ap2_layer.get().status())
+
+
+@app.route("/api/ap2/verify/<entry_id>")
+def api_ap2_verify(entry_id):
+    """Independently re-verify a stored AP2 chain with the SDK (does not trust the stored summary)."""
+    doc = db().collection("provenance").document(entry_id).get()
+    if not doc.exists:
+        return jsonify({"error": "no such provenance entry"}), 404
+    ap2 = (doc.to_dict() or {}).get("ap2") or {}
+    L = ap2_layer.get()
+    if not ap2.get("chain_token"):
+        return jsonify({"error": "this entry has no AP2 chain"}), 400
+    if not L.enabled:
+        return jsonify({"error": "AP2 layer is not enabled on this server"}), 503
+    try:
+        return jsonify(L.reverify(ap2["chain_token"], ap2["aud"], ap2["nonce"]))
+    except Exception as e:
+        return jsonify({"verified": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}), 200
 
 
 @app.route("/api/mandate")
