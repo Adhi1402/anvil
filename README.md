@@ -90,6 +90,16 @@ flowchart LR
 - ✅ **Stacked on purpose:** AP2 constraints are deterministic (amount, payee). They catch overage and unapproved suppliers, but a $590 business-class booking at an approved supplier passes them. That is what Gemini's semantic audit catches. Anvil's original HMAC Intent/Cart Mandates are kept alongside for the receipts and the tamper demo.
 - ❌ Not claimed: "fully AP2-compliant". The payment instrument and payee records are demo values, there is no bank/PISP issuer role, and the orchestrator's private key is an environment variable on Cloud Run (production: Secret Manager or KMS). If the AP2 layer is not configured, or has an infrastructure error, nothing is blocked and behaviour is exactly as before AP2 (the error is recorded on the entry).
 
+## Scaling and real-time use
+
+**Measured today (live):** one run is about 20 s (planner call + 3 sequential Gemini audits, ~3.6 s median each, ~$0.002 per audit, estimated). 8 simultaneous runs finish in about 34 s of wall time with correct verdicts and an unbroken hash chain.
+
+**What was done for concurrent use:** log appends are Firestore transactions on a stored chain tip (O(1) reads, the chain cannot fork under concurrent writers; tested with 60 simultaneous appends); gunicorn 8 threads, Cloud Run concurrency 8, one warm instance, autoscaling to 10; pauses and revocations auto-expire (default 3 min) so one visitor cannot leave a shared demo blocked; the AP2 signing key is in Secret Manager.
+
+**Known limits (hackathon scope):** one global chain and one global control state, so write throughput on the chain tip is roughly one entry per second per chain; per-tenant or per-mandate chains remove that. Legs run sequentially. Metrics re-read up to 500 entries per call. Public demo endpoints are unauthenticated.
+
+**Path to production:** expose Anvil as a synchronous authorization call inside the agent's purchase tool (`POST /authorize` returning the verdict plus an AP2 chain) with idempotency keys; per-tenant chains, mandates and controls behind authentication; human approval for REVIEW delivered asynchronously (webhook or chat) while the agent waits or polls; run the deterministic checks (AP2 constraints, caps) before calling Gemini so clear-cut cases cost no tokens; cache identical decisions; audit the three legs in parallel; export the chain to BigQuery; keys in KMS. Decision latency (seconds) suits purchase approvals at human time-scales, not high-frequency payments.
+
 ## Repo layout
 
 ```

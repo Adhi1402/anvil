@@ -113,6 +113,21 @@ bs = [e["step"]["audit"] for e in evs if e["event"] == "step"]
 check("ap2: Gemini still blocks the class swap that AP2 constraints alone cannot see, and the correction gets an AP2 chain",
       [b["verdict"] for b in bs][:2] == ["DRIFT", "MATCH"] and bs[0].get("source") != "ap2-constraints" and bs[-1].get("ap2", {}).get("verified"), bs)
 
+# ---- stability of the headline demo path + concurrency (the Clean-trip flow must not flicker, and the chain must not fork)
+import threading
+seen, lock = {}, threading.Lock()
+def _trip():
+    _, evs_ = stream("/stream/scenario", {"name": "trip"})
+    with lock:
+        for e in evs_:
+            if e["event"] == "step":
+                k = (e["kind"], e["step"]["audit"]["verdict"]); seen[k] = seen.get(k, 0) + 1
+for _ in range(2):
+    th = [threading.Thread(target=_trip) for _ in range(4)]; [t.start() for t in th]; [t.join() for t in th]
+check("8 concurrent clean trips: all 24 legs MATCH (no flicker)", seen == {("flight", "MATCH"): 8, ("hotel", "MATCH"): 8, ("transport", "MATCH"): 8}, seen)
+check("hash chain still one unbroken line after concurrent writers", get("/api/verify").json()["chain_ok"] is True)
+check("A2A: buyer uses the official a2a-sdk client", get("/api/a2a").json()["mode"] == "official a2a-sdk", get("/api/a2a").json())
+
 print("\nRunning the eval (26 scenarios x2, live Gemini; ~1 min)...")
 ev = get("/api/eval?refresh=1&repeats=2", timeout=290).json()
 s = ev["summary"]
