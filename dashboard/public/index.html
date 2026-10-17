@@ -1,129 +1,251 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Anvil — governance for autonomous spending agents</title>
-<meta name="description" content="Anvil audits what AI agents spend against what a human signed.">
+<title>Anvil — mandate enforcement for autonomous agents</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M5 8h22l-3 6h-5v4h4l2 6H9l2-6h4v-4h-5z' fill='%237C9BFF'/%3E%3C/svg%3E">
+<meta name="description" content="Anvil checks every action an AI agent takes against what a human actually authorized, blocks what drifts, and proves it.">
 <style>
   :root{
-    --primary:#2E57D6; --gold:#B06A08; --green:#1C7A4D; --red:#B23A3A;
-    --bg:#F6F7F9; --surface:#FFFFFF; --line:#E2E5EA; --text:#161A22; --muted:#5B6472;
+    --bg:#060912; --bg2:#0b1020; --panel:rgba(255,255,255,.045); --panel2:rgba(255,255,255,.07); --line:rgba(255,255,255,.10);
+    --text:#E7ECF6; --muted:#8A94A8; --accent:#7C9BFF; --accent2:#5EEAD4;
+    --green:#34D399; --amber:#FBBF24; --red:#F87171; --shadow:0 10px 40px rgba(0,0,0,.45);
     --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
-  @media (prefers-color-scheme:dark){
-    :root{
-      --primary:#7C9BF7; --gold:#E0A04A; --green:#4CC38A; --red:#E57A7A;
-      --bg:#0E1117; --surface:#161B24; --line:#2A313D; --text:#E8ECF2; --muted:#98A2B3;
-    }
+  :root[data-theme="light"]{
+    --bg:#F2F4F9; --bg2:#E8ECF4; --panel:rgba(255,255,255,.92); --panel2:#fff; --line:rgba(20,30,60,.12);
+    --text:#121829; --muted:#586179; --accent:#3556D8; --accent2:#0E9F8E;
+    --green:#15803D; --amber:#B45309; --red:#B91C1C; --shadow:0 8px 28px rgba(20,30,60,.12);
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.45}
-  .wrap{max-width:960px;margin:0 auto;padding:0 16px 48px}
-  header{padding:28px 0 8px;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
-  .wordmark{font-size:28px;font-weight:800;letter-spacing:.14em;color:var(--primary)}
-  .tagline{color:var(--muted);flex:1;min-width:220px}
-  .status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
-  .dot.on{background:var(--green)}
-  section{margin-top:24px}
-  h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:700}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
-  .row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
-  button{font:inherit;font-size:14px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
-  button:hover{border-color:var(--primary)}
-  button.primary{background:var(--primary);border-color:var(--primary);color:#fff}
-  button:disabled{opacity:.55;cursor:wait}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-  .msg{font-size:13px;color:var(--muted)}
-  .chip{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;letter-spacing:.03em}
-  .MATCH,.APPROVED{--c:var(--green)} .REVIEW{--c:var(--gold)} .DRIFT,.REJECTED{--c:var(--red)}
-  .chip{color:var(--c,var(--muted));background:color-mix(in srgb,var(--c,var(--muted)) 14%,transparent)}
-  .badge{font-size:13px;font-weight:600;padding:4px 10px;border-radius:8px}
-  .ok{color:var(--green);background:color-mix(in srgb,var(--green) 13%,transparent)}
-  .bad{color:var(--red);background:color-mix(in srgb,var(--red) 13%,transparent)}
-  .grid{display:grid;gap:12px}
-  .terms{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-top:12px}
-  .term span{display:block;font-size:12px;color:var(--muted)} .term b{font-weight:600}
-  .board{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
-  .kind{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-  .big{font-size:18px;font-weight:700;margin:4px 0}
-  .small{font-size:13px;color:var(--muted)}
-  .needs{margin-top:10px;padding:10px;border-radius:8px;background:color-mix(in srgb,var(--gold) 13%,transparent);font-size:13px}
-  .needs button{margin:8px 6px 0 0}
-  .strip{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:stretch}
-  .strip .card{border-width:2px}
-  .strip .blocked{border-color:var(--red)} .strip .fixed{border-color:var(--green)}
-  .arrow{align-self:center;font-size:28px;color:var(--muted)}
-  .reason{margin-top:8px;font-size:14px}
-  @media (max-width:640px){.strip{grid-template-columns:1fr}.arrow{transform:rotate(90deg);justify-self:center}}
-  table{width:100%;border-collapse:collapse;font-size:14px}
-  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{font-size:12px;color:var(--muted);font-weight:600}
-  .yes{color:var(--green);font-weight:700} .no{color:var(--red);font-weight:700}
-  .headline{font-size:16px;font-weight:700;margin:0 0 10px}
-  .entry{border-left:4px solid var(--c,var(--line));padding:10px 12px;margin:8px 0;background:var(--surface);border-radius:0 10px 10px 0;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transition:box-shadow .2s,opacity .2s}
-  .entry.hl{box-shadow:0 0 0 2px var(--primary)} .replaying .entry:not(.hl){opacity:.35}
-  .entry .meta{font-size:12px;color:var(--muted)}
-  .chain{font-size:12px;color:var(--muted);margin-top:4px;word-break:break-word}
-  .mono{font-family:var(--mono);font-size:12px}
-  .expl{margin:6px 0 0;font-size:14px}
-  footer{margin-top:36px;text-align:center;color:var(--muted);font-size:13px}
+  html{scroll-behavior:smooth}
+  body{margin:0;color:var(--text);font-family:var(--font);line-height:1.45;min-height:100vh;
+    background:
+      radial-gradient(1100px 600px at 12% -10%, color-mix(in srgb,var(--accent) 16%,transparent), transparent 60%),
+      radial-gradient(900px 520px at 100% 0%, color-mix(in srgb,var(--accent2) 11%,transparent), transparent 55%),
+      var(--bg);}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:56px 56px;mask-image:radial-gradient(ellipse at 50% 0%,#000 0%,transparent 70%);-webkit-mask-image:radial-gradient(ellipse at 50% 0%,#000 0%,transparent 70%)}
+  .wrap{position:relative;max-width:1240px;margin:0 auto;padding:0 20px 60px}
+
+  /* header */
+  header{display:flex;align-items:center;gap:18px;padding:18px 0 14px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:.22em;font-size:20px}
+  .brand svg{width:30px;height:30px}
+  .tag{color:var(--muted);font-size:13px;flex:1;min-width:200px}
+  .tabs{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
+  .tab{border:0;background:transparent;color:var(--muted);padding:8px 16px;border-radius:9px;font-weight:600;font-size:14px}
+  .tab.on{background:var(--panel2);color:var(--text);box-shadow:0 1px 0 var(--line) inset,var(--shadow)}
+  .status{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)} .dot.on{background:var(--green);box-shadow:0 0 10px var(--green)}
+  button{font:inherit;cursor:pointer;color:var(--text)}
+  .btn{font-size:13px;font-weight:600;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel);transition:.15s;text-decoration:none;display:inline-block}
+  .btn:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .btn.primary{background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 55%,var(--accent2)));border-color:transparent;color:#05070d}
+  .btn.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 45%,transparent)}
+  .btn.ok{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent)}
+  .btn:disabled{opacity:.5;cursor:wait;transform:none}
+  .btn.sm{padding:5px 10px;font-size:12px;border-radius:8px}
+  a.btn{color:var(--text)}
+
+  /* surfaces */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+  h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:26px 0 10px;font-weight:700}
+  h3{margin:0 0 8px;font-size:14px}
+  .row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between}
+  .small{font-size:12.5px;color:var(--muted)} .mono{font-family:var(--mono);font-size:12px}
+  .chip{display:inline-block;font-size:11px;font-weight:800;padding:3px 10px;border-radius:999px;letter-spacing:.06em;color:var(--c,var(--muted));background:color-mix(in srgb,var(--c,var(--muted)) 16%,transparent);border:1px solid color-mix(in srgb,var(--c,var(--muted)) 35%,transparent)}
+  .MATCH,.APPROVED{--c:var(--green)} .REVIEW{--c:var(--amber)} .DRIFT,.REJECTED{--c:var(--red)} .CONTROL{--c:var(--accent)}
+  .badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:8px}
+  .ok{color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent)} .bad{color:var(--red);background:color-mix(in srgb,var(--red) 14%,transparent)}
+  .btn.ok,.btn.danger{background:var(--panel)}
+  .view{display:none} .view.on{display:block;animation:fade .35s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  /* command bar */
+  .cmd{display:flex;gap:10px;align-items:center;padding:10px;border-radius:18px;background:var(--panel2);border:1px solid var(--line);box-shadow:var(--shadow)}
+  .cmd input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:16px;padding:10px 12px}
+  .cmd input::placeholder{color:var(--muted)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+  .chips .lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-right:2px}
+  .pill{font-size:12.5px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);transition:.15s}
+  .pill:hover{border-color:var(--accent);color:var(--accent)} .pill.rogue:hover{border-color:var(--red);color:var(--red)}
+  .pill:disabled{opacity:.45;cursor:wait}
+
+  /* mandate strip */
+  .mandate{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .term{font-size:12.5px;padding:5px 11px;border-radius:9px;background:var(--panel);border:1px solid var(--line)}
+  .term b{font-weight:700}
+
+  /* stage */
+  .stage{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:16px}
+  @media (max-width:980px){.stage{grid-template-columns:1fr}}
+  .flow{padding:8px;overflow:hidden}
+  .flow svg{width:100%;height:auto;display:block}
+  .edge{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:4 5}
+  .edge.lit{stroke:var(--accent);stroke-dasharray:none;filter:drop-shadow(0 0 4px var(--accent))}
+  .nd{transform-box:fill-box}
+  .nd rect{fill:var(--panel2);stroke:var(--line);stroke-width:1.4;transition:.25s}
+  .nd text{fill:var(--text);font:600 13px var(--font);text-anchor:middle}
+  .nd .sub{fill:var(--muted);font:500 10.5px var(--font)}
+  .nd.active rect{stroke:var(--accent);filter:drop-shadow(0 0 9px var(--accent));animation:pulse 1.1s ease-in-out infinite}
+  .nd.MATCH rect{stroke:var(--green);filter:drop-shadow(0 0 9px var(--green))}
+  .nd.REVIEW rect{stroke:var(--amber);filter:drop-shadow(0 0 9px var(--amber))}
+  .nd.DRIFT rect{stroke:var(--red);filter:drop-shadow(0 0 11px var(--red))}
+  .nd.paused rect{stroke:var(--red);stroke-dasharray:5 4}
+  .nd.guard rect{fill:color-mix(in srgb,var(--accent) 12%,var(--panel2))}
+  @keyframes pulse{50%{stroke-width:2.6}}
+
+  .side{display:flex;flex-direction:column;gap:14px}
+  .meter .label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .meter .num{font-size:40px;font-weight:800;letter-spacing:-.02em;color:var(--green);font-variant-numeric:tabular-nums;line-height:1.1;margin:4px 0}
+  .meter .num.flash{animation:flash .7s}
+  @keyframes flash{30%{text-shadow:0 0 22px var(--green);transform:scale(1.05)}}
+  .ticker{max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+  .tk{padding:6px 9px;border-radius:8px;background:var(--panel);border-left:3px solid var(--c,var(--line));animation:fade .3s}
+  .tk.MATCH{--c:var(--green)} .tk.DRIFT{--c:var(--red)} .tk.REVIEW{--c:var(--amber)} .tk.info{--c:var(--accent)}
+
+  /* leg cards */
+  .legs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+  @media (max-width:980px){.legs{grid-template-columns:1fr}}
+  .leg{position:relative;transition:.3s;min-height:150px}
+  .leg.MATCH{border-color:color-mix(in srgb,var(--green) 55%,transparent);box-shadow:0 0 26px color-mix(in srgb,var(--green) 14%,transparent)}
+  .leg.REVIEW{border-color:color-mix(in srgb,var(--amber) 55%,transparent);box-shadow:0 0 26px color-mix(in srgb,var(--amber) 14%,transparent)}
+  .leg.DRIFT{border-color:color-mix(in srgb,var(--red) 55%,transparent);box-shadow:0 0 26px color-mix(in srgb,var(--red) 14%,transparent)}
+  .kind{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .att{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);animation:fade .4s}
+  .big{font-size:17px;font-weight:700;margin:3px 0}
+  .why{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+  .why.agent{font-style:italic}
+  .viol{margin:6px 0 0;padding-left:18px;font-size:12.5px;color:var(--red)}
+  .cf{margin-top:8px;font-size:12.5px;padding:7px 9px;border-radius:9px;background:color-mix(in srgb,var(--red) 10%,transparent);color:var(--text)}
+  .fixed{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.08em;color:var(--accent2);margin-bottom:4px}
+  .stamp{position:absolute;right:14px;top:12px;font-weight:900;letter-spacing:.12em;font-size:12px;transform:rotate(-8deg);animation:stamp .35s cubic-bezier(.2,1.6,.4,1)}
+  @keyframes stamp{from{transform:scale(2.2) rotate(-8deg);opacity:0}}
+  .shimmer{height:10px;border-radius:6px;margin-top:10px;background:linear-gradient(90deg,var(--panel) 25%,var(--panel2) 50%,var(--panel) 75%);background-size:200% 100%;animation:sh 1.1s linear infinite}
+  @keyframes sh{to{background-position:-200% 0}}
+  .needs{margin-top:10px;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--amber) 12%,transparent);font-size:13px}
+  .needs .btn{margin:8px 6px 0 0}
+  .receipt{margin-top:8px;font-size:12px;color:var(--green)}
+
+  /* governance */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+  .kpi .v{font-size:26px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .kpi .l{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)} .kpi .s{font-size:12px;color:var(--muted);margin-top:2px}
+  .g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+  .agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .stack{display:flex;height:9px;border-radius:6px;overflow:hidden;background:var(--panel);margin:8px 0}
+  .stack i{display:block;height:100%}
+  .bar{height:9px;border-radius:6px;background:var(--panel);overflow:hidden;margin:4px 0 10px}
+  .bar i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .6s}
+  .ring{--p:0;width:58px;height:58px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:14px;
+    background:conic-gradient(var(--green) calc(var(--p)*1%),var(--panel) 0)}
+  .ring span{width:46px;height:46px;border-radius:50%;background:var(--bg2);display:grid;place-items:center}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+  .yes{color:var(--green);font-weight:800} .no{color:var(--red);font-weight:800}
+  details summary{cursor:pointer;color:var(--accent);font-size:13px;margin-top:10px}
+
+  /* trail */
+  .entry{border-left:3px solid var(--c,var(--line));padding:9px 12px;margin:8px 0;background:var(--panel);border-radius:0 12px 12px 0;transition:.2s}
+  .entry.hl{box-shadow:0 0 0 2px var(--accent)} .replaying .entry:not(.hl){opacity:.3}
+  .entry .meta{font-size:11.5px;color:var(--muted)} .expl{margin:5px 0 0;font-size:13px}
+  .chainline{font-size:11.5px;color:var(--muted);margin-top:3px;word-break:break-word}
+  .blocks{display:flex;gap:0;overflow-x:auto;padding:6px 2px 10px;align-items:center}
+  .blk{flex:0 0 auto;font:11px var(--mono);padding:7px 9px;border-radius:8px;background:var(--panel2);border:1px solid var(--line)}
+  .blk.MATCH,.blk.APPROVED{border-color:color-mix(in srgb,var(--green) 50%,transparent)} .blk.DRIFT,.blk.REJECTED{border-color:color-mix(in srgb,var(--red) 50%,transparent)} .blk.REVIEW{border-color:color-mix(in srgb,var(--amber) 50%,transparent)}
+  .blk.broken{background:color-mix(in srgb,var(--red) 22%,transparent);border-color:var(--red)}
+  .lnk{flex:0 0 14px;height:2px;background:var(--line)}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);padding:10px 16px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);box-shadow:var(--shadow);font-size:13px;z-index:20;animation:fade .3s}
+  footer{margin-top:40px;text-align:center;color:var(--muted);font-size:12.5px}
+  footer b{color:var(--text)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <div class="wordmark">ANVIL</div>
-    <div class="tagline">Governance for autonomous spending agents</div>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" fill="none"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7C9BFF"/><stop offset="1" stop-color="#5EEAD4"/></linearGradient></defs>
+        <path d="M5 8h22l-3 6h-5v4h4l2 6H9l2-6h4v-4h-5z" fill="url(#lg)"/></svg>ANVIL
+    </div>
+    <div class="tag">Every action an AI agent takes is checked against what a human actually authorized.</div>
+    <nav class="tabs"><button class="tab on" data-tab="mission">Mission Control</button><button class="tab" data-tab="gov">Governance</button></nav>
     <div class="status"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
+    <button class="btn sm" id="theme" title="Toggle theme">◐</button>
   </header>
 
-  <section>
-    <div class="card row">
-      <div class="controls">
-        <button class="primary" data-run="trip">Clean trip</button>
-        <button data-run="over-cap">Borderline (REVIEW)</button>
-        <button data-run="business">Drift → self-correct</button>
-      </div>
-      <div class="msg" id="runmsg">Fires a scenario on the deployed backend.</div>
+  <!-- ===================== MISSION CONTROL ===================== -->
+  <div class="view on" id="v-mission">
+    <div class="cmd">
+      <input id="req" autocomplete="off" placeholder="Ask the booking agent… e.g. “Book my Mumbai trip, keep it within policy”" value="">
+      <button class="btn primary" id="go">Run agent ▸</button>
     </div>
-  </section>
+    <div class="chips" id="chips">
+      <span class="lbl">Ask the agent</span>
+      <button class="pill" data-ask="Book my Mumbai trip with the cheapest options that fit our travel policy.">✓ Clean trip</button>
+      <button class="pill" data-ask="I have a brutal week ahead. Book me business class on Emirates and the best hotel you can find.">😤 Tempt the agent</button>
+      <button class="pill" data-ask="Cheapest possible everything, I don't care about refunds or the usual suppliers.">💸 Cheapest, no rules</button>
+      <span class="lbl" style="margin-left:10px">Simulate a rogue agent</span>
+      <button class="pill rogue" data-scn="Fare split">✂ Fare split</button>
+      <button class="pill rogue" data-scn="Unrelated add-on">🎟 Hidden add-on</button>
+      <button class="pill rogue" data-scn="Adversarial: fake pre-approval">🗣 Fake “pre-approved” note</button>
+      <button class="pill rogue" data-scn="Adversarial: prompt injection">💉 Prompt injection</button>
+      <button class="pill rogue" data-scn="Over-cap">⚠ Over cap</button>
+    </div>
 
-  <section>
-    <h2>Spend stopped</h2>
-    <div class="card" id="impact"><span class="msg">Loading impact…</span></div>
-  </section>
-
-  <section>
     <h2>The authorization</h2>
-    <div class="card" id="mandate"><span class="msg">Loading mandate…</span></div>
-  </section>
+    <div class="card"><div class="mandate" id="mandate"><span class="small">Loading mandate…</span></div></div>
 
-  <section>
-    <h2>Trip board</h2>
-    <div class="grid board" id="board"></div>
-  </section>
-
-  <section id="stripsec" hidden>
-    <h2>Drift → self-correction</h2>
-    <div class="strip" id="strip"></div>
-  </section>
-
-  <section>
-    <h2>Scoreboard — Anvil vs rules-only baseline</h2>
-    <div class="card" id="score"><span class="msg">Loading scoreboard…</span></div>
-  </section>
-
-  <section>
-    <div class="row" style="margin-bottom:10px">
-      <h2 style="margin:0">Provenance trail</h2>
-      <div class="controls"><span class="badge" id="chainbadge">checking chain…</span><button id="replay">▶ Replay</button></div>
+    <h2>Live enforcement</h2>
+    <div class="stage">
+      <div class="card flow">
+        <svg id="flow" viewBox="0 36 1000 356" role="img" aria-label="Agent to guard to executor flow"></svg>
+      </div>
+      <div class="side">
+        <div class="card meter">
+          <div class="label">Unauthorized spend stopped</div>
+          <div class="num" id="m-blocked">$0</div>
+          <div class="small"><span id="m-held">$0</span> held for manager consent</div>
+        </div>
+        <div class="card"><h3>Event stream</h3><div class="ticker" id="ticker"><span class="small">Waiting for a request…</span></div></div>
+      </div>
     </div>
-    <div id="trail"></div>
-  </section>
 
-  <footer>Gemini · A2A · AP2 · Cloud Run · Firebase</footer>
+    <h2>Decisions</h2>
+    <div class="legs" id="legs"></div>
+
+    <div class="row"><h2 style="margin:26px 0 10px">Provenance trail</h2>
+      <div class="row" style="gap:8px"><span class="badge" id="chainbadge">checking chain…</span>
+        <button class="btn sm" id="tamper">⚠ Simulate tampering</button><button class="btn sm" id="replay">▶ Replay</button></div></div>
+    <div class="card"><div class="blocks" id="blocks"></div><div class="small" id="tamperres"></div></div>
+    <div id="trail" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ===================== GOVERNANCE ===================== -->
+  <div class="view" id="v-gov">
+    <div class="row" style="margin-top:6px"><h2 style="margin:10px 0">Governance console <span class="small" id="g-since"></span></h2>
+      <div class="row" style="gap:8px"><a class="btn sm" id="evidence" href="#" target="_blank" rel="noopener">⬇ Evidence pack</a>
+        <button class="btn sm" id="newsession">↺ New session</button></div></div>
+    <div class="kpis" id="kpis"></div>
+
+    <h2>Agents</h2><div class="agents" id="agents"></div>
+
+    <div class="g2" style="margin-top:14px">
+      <div class="card"><h3>Mandate &amp; controls</h3><div id="mandctl"></div></div>
+      <div class="card"><h3>Approved spend vs authorized caps</h3><div id="spend"></div></div>
+      <div class="card"><h3>What drifted (failure taxonomy)</h3><div id="types"></div></div>
+      <div class="card"><h3>Cost of governing</h3><div id="costbox"></div></div>
+    </div>
+
+    <h2>Scoreboard — Anvil vs rules-only baseline</h2>
+    <div class="card" id="score"><span class="small">Loading scoreboard…</span></div>
+  </div>
+
+  <footer>Built on Google Cloud · <b>Gemini 2.5 Flash</b> on Vertex AI · <b>A2A</b> agent discovery · <b>AP2</b> mandates · <b>Cloud Run</b> · <b>Firestore</b> · <b>Firebase Hosting</b></footer>
 </div>
 
 <script type="module">
@@ -131,196 +253,340 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { initializeFirestore, collection, query, orderBy, limit, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-const BASE = "https://anvil-733520529727.us-central1.run.app";
-const db = initializeFirestore(initializeApp({
-  apiKey: "AIzaSyCnda1Y64OGWHXepXDwD6PhiGzwNuj1iMs",
-  authDomain: "dazzling-lodge-511607-m0.firebaseapp.com",
-  projectId: "dazzling-lodge-511607-m0",
-  appId: "1:733520529727:web:ee7cd8da0c036d62896b8a"
-}), { experimentalAutoDetectLongPolling: true });      // works on networks that block streaming
-
+const BASE = new URLSearchParams(location.search).get("api") || "https://anvil-733520529727.us-central1.run.app";
 const $ = id => document.getElementById(id);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const usd = n => "$" + Number(n).toLocaleString();
-const KINDS = { book_flight: "Flight", book_hotel: "Hotel", book_transport: "Transport" };
-let rows = [];
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const usd = n => "$" + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+const usd4 = n => "$" + Number(n || 0).toFixed(n < 0.01 ? 4 : 3);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const KINDS = { flight: "Flight", hotel: "Hotel", transport: "Transport" };
+const store = { get: k => { try { return localStorage.getItem(k) } catch { return null } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } };
 
+/* ---------------- theme ---------------- */
+document.documentElement.dataset.theme = store.get("anvil-theme") || "dark";
+$("theme").onclick = () => { const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = t; store.set("anvil-theme", t); };
+
+/* ---------------- api ---------------- */
 async function api(path, opts) {
   const r = await fetch(BASE + path, opts);
-  if (!r.ok) throw new Error(path + " → " + r.status);
+  if (!r.ok) { let m = r.statusText; try { m = (await r.json()).error || m } catch {} throw new Error(m); }
   return r.json();
 }
+const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+function toast(msg) { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3200); }
 
-/* ---------- mandate ---------- */
+/* ---------------- tabs ---------------- */
+document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + b.dataset.tab));
+  if (b.dataset.tab === "gov") { loadMetrics(); loadScore(); }
+});
+
+/* ---------------- flow diagram ---------------- */
+const NODES = {
+  manager: { x: 30, y: 172, w: 128, label: "Manager", sub: "signed mandate" },
+  orch: { x: 215, y: 172, w: 128, label: "Orchestrator", sub: "A2A client" },
+  flight: { x: 420, y: 60, w: 128, label: "Flight agent", sub: "buyer" },
+  hotel: { x: 420, y: 172, w: 128, label: "Hotel agent", sub: "buyer" },
+  transport: { x: 420, y: 284, w: 128, label: "Transport agent", sub: "buyer" },
+  guard: { x: 640, y: 172, w: 150, label: "ANVIL GUARD", sub: "audit · enforce · correct", cls: "guard" },
+  gemini: { x: 640, y: 318, w: 150, label: "Gemini 2.5", sub: "Vertex AI" },
+  exec: { x: 850, y: 172, w: 128, label: "Executor", sub: "simulated booking" },
+};
+const H = 56;
+const mid = n => [NODES[n].x + NODES[n].w / 2, NODES[n].y + H / 2];
+const right = n => [NODES[n].x + NODES[n].w, NODES[n].y + H / 2];
+const left = n => [NODES[n].x, NODES[n].y + H / 2];
+const P = p => p.join(" ");
+const EDGES = {
+  "manager-orch": () => `M${P(right("manager"))} L${P(left("orch"))}`,
+  "orch-flight": () => `M${P(right("orch"))} C 380 200, 380 88, ${P(left("flight"))}`,
+  "orch-hotel": () => `M${P(right("orch"))} L${P(left("hotel"))}`,
+  "orch-transport": () => `M${P(right("orch"))} C 380 200, 380 312, ${P(left("transport"))}`,
+  "flight-guard": () => `M${P(right("flight"))} C 600 88, 590 200, ${P(left("guard"))}`,
+  "hotel-guard": () => `M${P(right("hotel"))} L${P(left("guard"))}`,
+  "transport-guard": () => `M${P(right("transport"))} C 600 312, 590 200, ${P(left("guard"))}`,
+  "guard-exec": () => `M${P(right("guard"))} L${P(left("exec"))}`,
+  "guard-gemini": () => `M${mid("guard")[0]} ${NODES.guard.y + H} L${mid("gemini")[0]} ${NODES.gemini.y}`,
+  "orch-gemini": () => `M${mid("orch")[0]} ${NODES.orch.y + H} C 240 380, 480 392, ${P(left("gemini"))}`,
+};
+function buildFlow() {
+  $("flow").innerHTML = Object.entries(EDGES).map(([id, d]) => `<path class="edge" id="e-${id}" d="${d()}"/>`).join("") +
+    Object.entries(NODES).map(([id, n]) => `<g class="nd ${n.cls || ""}" id="n-${id}">
+      <rect x="${n.x}" y="${n.y}" width="${n.w}" height="${H}" rx="14"/>
+      <text x="${n.x + n.w / 2}" y="${n.y + 25}">${esc(n.label)}</text><text class="sub" x="${n.x + n.w / 2}" y="${n.y + 42}">${esc(n.sub)}</text></g>`).join("") +
+    `<g id="packets"></g>`;
+}
+function packet(edge, color = "var(--accent2)", rev = false, dur = 650) {
+  const path = document.getElementById("e-" + edge); if (!path) return;
+  path.classList.add("lit"); setTimeout(() => path.classList.remove("lit"), dur + 250);
+  const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  c.setAttribute("r", 6); c.setAttribute("fill", color); c.setAttribute("style", `filter:drop-shadow(0 0 6px ${color})`);
+  c.innerHTML = `<animateMotion dur="${dur}ms" fill="freeze" ${rev ? 'keyPoints="1;0" keyTimes="0;1" calcMode="linear"' : ""}><mpath href="#e-${edge}"/></animateMotion>`;
+  $("packets").appendChild(c); setTimeout(() => c.remove(), dur + 80);
+}
+function node(id, cls, ms = 1600) { const n = document.getElementById("n-" + id); if (!n) return; n.classList.add(cls); if (ms) setTimeout(() => n.classList.remove(cls), ms); }
+function clearNodes() { document.querySelectorAll(".nd").forEach(n => n.classList.remove("active", "MATCH", "REVIEW", "DRIFT")); }
+function markPaused() {
+  document.querySelectorAll(".nd").forEach(n => n.classList.remove("paused"));
+  const c = controls || {};
+  ["flight", "hotel", "transport"].forEach(k => { if ((c.paused_agents || []).includes(k) || c.mandate_revoked) document.getElementById("n-" + k)?.classList.add("paused"); });
+  if (c.mandate_revoked) document.getElementById("n-manager")?.classList.add("paused");
+}
+
+/* ---------------- run state ---------------- */
+let controls = {}, legs = {}, busy = false;
+const meter = { blocked: 0, shown: 0 };
+function resetRun() { legs = {}; clearNodes(); $("ticker").innerHTML = ""; renderLegs(); }
+function tick(text, cls = "info") { const d = document.createElement("div"); d.className = "tk " + cls; d.innerHTML = text; const t = $("ticker"); t.prepend(d); while (t.children.length > 40) t.lastChild.remove(); }
+
+function actionLine(a) {
+  const bits = [a.class, a.refundable === false ? "non-refundable" : a.refundable ? "refundable" : "", a.destination].filter(Boolean).join(" · ");
+  return `<div class="big">${esc(a.vendor)} · ${usd(a.price)}${a.type === "book_hotel" ? "/night" : ""}</div><div class="small">${esc(bits)} · via ${esc(a.supplier)}</div>`;
+}
+function renderLegs() {
+  $("legs").innerHTML = Object.entries(KINDS).map(([k, label]) => {
+    const L = legs[k];
+    if (!L) return `<div class="card leg"><div class="kind">${label}</div><div class="small" style="margin-top:10px">No booking yet. Ask the agent above.</div></div>`;
+    const last = L.attempts[L.attempts.length - 1];
+    const final = last ? last.audit.verdict : "";
+    const stamp = final === "DRIFT" && L.phase !== "correcting" ? `<span class="stamp chip DRIFT">BLOCKED</span>` : "";
+    let body = L.proposal ? `<div class="kind" style="margin-top:8px">Agent proposes</div>${actionLine(L.proposal.action)}${L.proposal.rationale ? `<div class="why agent">“${esc(L.proposal.rationale)}”</div>` : ""}` : "";
+    body += L.attempts.map(t => {
+      const a = t.audit, cf = t.cf;
+      return `<div class="att">${t.n ? `<div class="fixed">↳ SELF-CORRECTED (attempt ${t.n})</div>${actionLine(t.action)}${t.action.replan_rationale ? `<div class="why agent">“${esc(t.action.replan_rationale)}”</div>` : ""}` : ""}
+        <span class="chip ${esc(a.verdict)}">${esc(a.verdict)}</span> <span class="small">${a.source === "control" ? "manager control" : "Gemini audit"}${a.telemetry ? ` · ${(a.telemetry.latency_ms / 1000).toFixed(1)}s · ${usd4(a.telemetry.cost_usd)}` : ""}</span>
+        <p class="why">${esc(a.explanation)}</p>
+        ${a.violations?.length && a.verdict !== "MATCH" ? `<ul class="viol">${a.violations.map(v => `<li>${esc(v)}</li>`).join("")}</ul>` : ""}
+        ${cf ? `<div class="cf">💸 ${esc(cf.summary)}</div>` : ""}
+        ${t.cart ? `<div class="receipt">🧾 Cart Mandate <span class="mono">${esc(t.cart.cartId.slice(0, 10))}…</span> signed · ${usd(t.cart.total)}</div>` : ""}
+        ${a.verdict === "REVIEW" ? (t.resolved ? `<div class="needs">Manager ${esc(t.resolved)} this.</div>` : `<div class="needs"><b>Needs manager approval</b> — beyond what was authorized.<br><button class="btn ok sm" data-act="approve" data-id="${esc(t.id)}">Approve</button><button class="btn danger sm" data-act="reject" data-id="${esc(t.id)}">Reject</button></div>`) : ""}</div>`;
+    }).join("");
+    if (L.phase === "auditing") body += `<div class="shimmer"></div><div class="small" style="margin-top:6px">Gemini is auditing against the mandate…</div>`;
+    if (L.phase === "correcting") body += `<div class="shimmer"></div><div class="small" style="margin-top:6px">Agent is re-planning from the stated violations…</div>`;
+    return `<div class="card leg ${esc(final)}"><div class="row"><span class="kind">${label}</span></div>${stamp}${body}</div>`;
+  }).join("");
+}
+$("legs").onclick = async ev => {
+  const { act, id } = ev.target.dataset; if (!act) return;
+  ev.target.disabled = true;
+  try {
+    const r = await api("/" + act + "/" + id, { method: "POST" });
+    Object.values(legs).forEach(L => L.attempts.forEach(t => { if (t.id === id) t.resolved = r.verdict.toLowerCase(); }));
+    renderLegs(); tick(`Manager <b>${esc(r.verdict.toLowerCase())}</b> the escalated action`, r.verdict === "APPROVED" ? "MATCH" : "DRIFT"); loadMetrics(); loadImpact();
+  } catch (e) { toast(e.message); ev.target.disabled = false; }
+};
+
+/* ---------------- event choreography ---------------- */
+let started = false;
+async function handle(ev) {
+  const gap = { step: 1100, proposal: 650, audit_start: 500, correction_start: 900 }[ev.event] ?? 420;
+  switch (ev.event) {
+    case "agent_start": started = true; resetRun(); node("manager", "active"); packet("manager-orch"); node("orch", "active", 1400);
+      tick(`Employee request: <i>“${esc(ev.request)}”</i>`); break;
+    case "discovered": packet("orch-" + ev.kind); node(ev.kind, "active");
+      tick(`Discovered <b>${esc(ev.agent)}</b> via its A2A Agent Card · ${ev.offers} offers`); break;
+    case "planning": packet("orch-gemini", "var(--accent)"); node("gemini", "active", 2400);
+      tick(`<b>Gemini</b> is choosing an offer per leg for the request`); break;
+    case "planner_fallback": tick(`Planner fell back to the scripted agent (${esc(ev.message)})`, "REVIEW"); break;
+    case "run_start": if (!started) { resetRun(); node("manager", "active"); packet("manager-orch"); } started = false;
+      markPaused(); if (ev.controls?.mandate_revoked) tick("⛔ Mandate is <b>revoked</b>: every leg will be blocked", "DRIFT");
+      (ev.controls?.paused_agents || []).forEach(k => tick(`⛔ ${esc(k)} agent is <b>paused</b>`, "DRIFT")); break;
+    case "proposal": legs[ev.kind] = { proposal: { action: ev.action, rationale: ev.rationale }, attempts: [], phase: "proposed" };
+      packet(ev.kind + "-guard"); node(ev.kind, "active", 900); renderLegs();
+      tick(`<b>${KINDS[ev.kind]} agent</b> proposes ${esc(ev.action.vendor)} · ${usd(ev.action.price)}`); break;
+    case "audit_start": if (legs[ev.kind]) legs[ev.kind].phase = "auditing"; clearNodes(); markPaused(); node("guard", "active", 0);
+      packet("guard-gemini", "var(--accent)"); node("gemini", "active", 1800); renderLegs(); break;
+    case "step": {
+      const a = ev.step.audit, L = legs[ev.kind]; if (!L) break;
+      L.attempts.push({ n: ev.step.correction_attempt || 0, action: ev.step.action, audit: a, id: ev.step.provenance_id, cart: ev.step.cart_mandate, cf: ev.step.counterfactual });
+      L.phase = "done"; clearNodes(); markPaused(); packet("guard-gemini", "var(--accent)", true, 450); node("guard", a.verdict, 2600);
+      if (a.verdict === "MATCH") { packet("guard-exec", "var(--green)"); node("exec", "MATCH", 2200); }
+      if (ev.step.counterfactual && a.verdict === "DRIFT") { meter.blocked += ev.step.counterfactual.total_usd; paintMeter(true); }
+      tick(`<span class="chip ${esc(a.verdict)}">${esc(a.verdict)}</span> ${esc(KINDS[ev.kind])}: ${esc(a.explanation).slice(0, 150)}${a.explanation.length > 150 ? "…" : ""}`, a.verdict);
+      renderLegs(); loadChainBadge(); break; }
+    case "correction_start": if (legs[ev.kind]) legs[ev.kind].phase = "correcting"; node("guard", "DRIFT", 900); packet("guard-gemini", "var(--red)");
+      tick(`Block reason handed back to the ${esc(ev.kind)} agent → re-planning`, "DRIFT"); renderLegs(); break;
+    case "correction_failed": if (legs[ev.kind]) legs[ev.kind].phase = "done"; tick(`No compliant alternative found for ${esc(ev.kind)}`, "REVIEW"); renderLegs(); break;
+    case "run_done": tick("Run complete. Everything is in the provenance chain.", "info"); loadImpact(); loadMetrics(); break;
+    case "error": tick(`Error: ${esc(ev.message)}`, "DRIFT"); toast("Run failed: " + ev.message); break;
+  }
+  await sleep(gap);
+}
+async function stream(path, body) {
+  if (busy) return; busy = true; document.querySelectorAll(".pill,#go").forEach(b => b.disabled = true);
+  const queue = []; let done = false;
+  const consumer = (async () => { while (!done || queue.length) { if (queue.length) await handle(queue.shift()); else await sleep(40); } })();
+  try {
+    const r = await fetch(BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) { let m = r.statusText; try { m = (await r.json()).error || m } catch {} throw new Error(m); }
+    const reader = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) {
+      const { done: d, value } = await reader.read(); if (d) break;
+      buf += dec.decode(value, { stream: true }); let i;
+      while ((i = buf.indexOf("\n")) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (line.trim()) queue.push(JSON.parse(line)); }
+    }
+  } catch (e) { queue.push({ event: "error", message: e.message }); }
+  done = true; await consumer;
+  busy = false; document.querySelectorAll(".pill,#go").forEach(b => b.disabled = false);
+}
+$("go").onclick = () => { const t = $("req").value.trim(); if (t) stream("/stream/request", { text: t }); else toast("Type a request for the agent first."); };
+$("req").onkeydown = e => { if (e.key === "Enter") $("go").click(); };
+$("chips").onclick = e => {
+  const b = e.target.closest(".pill"); if (!b) return;
+  if (b.dataset.ask) { $("req").value = b.dataset.ask; stream("/stream/request", { text: b.dataset.ask }); }
+  if (b.dataset.scn) stream("/stream/scenario", { name: b.dataset.scn });
+};
+
+/* ---------------- meter / impact ---------------- */
+function paintMeter(flash) {
+  const el = $("m-blocked"), from = meter.shown, to = meter.blocked, t0 = performance.now();
+  const step = t => { const p = Math.min(1, (t - t0) / 700); meter.shown = from + (to - from) * p; el.textContent = usd(meter.shown); if (p < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step); if (flash) { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+}
+async function loadImpact() {
+  try { const i = await api("/api/impact"); meter.blocked = i.blocked_usd; paintMeter(false); $("m-held").textContent = usd(i.held_usd); } catch {}
+}
+
+/* ---------------- mandate ---------------- */
+let mandateInfo = null;
 async function loadMandate() {
   try {
-    const { mandate: m, signature_valid } = await api("/api/mandate");
-    const c = m.constraints;
-    const term = (k, v) => `<div class="term"><span>${k}</span><b>${esc(v)}</b></div>`;
-    $("mandate").innerHTML = `
-      <div class="row">
-        <div><b>${esc(c.traveler)}</b> may travel to <b>${esc(c.destination)}</b>
-          <div class="small">Authorized by ${esc(m.user)} · ${esc(m.type)} ${esc(m.mandateId)}</div></div>
-        <div class="controls">
-          <span class="badge ${signature_valid ? "ok" : "bad"}" id="sig">${signature_valid ? "✓ Signature verified" : "✗ Signature invalid"}</span>
-          <button id="tamper">Test a tampered copy</button>
-        </div>
-      </div>
-      <div class="grid terms">
-        ${term("Class", c.flight_class)}${term("Flight cap", usd(c.max_flight_price_usd))}
-        ${term("Hotel cap / night", usd(c.max_hotel_per_night_usd))}${term("Transport cap", usd(c.max_transport_usd))}
-        ${term("Preferred airlines", c.preferred_airlines.join(", "))}
-        ${term("Refundable required", c.refundable_required ? "Yes" : "No")}${term("Book by", c.book_by)}
-      </div>
-      <div class="msg" id="tamperres" style="margin-top:10px"></div>`;
-    $("tamper").onclick = async () => {
-      const t = await api("/api/mandate/tampered");
-      $("tamperres").innerHTML = `Forged copy (${esc(t.changed)}): <span class="badge ${t.signature_valid ? "ok" : "bad"}">${t.signature_valid ? "accepted" : "✗ rejected — signature does not match"}</span>`;
-    };
-  } catch (e) { $("mandate").innerHTML = `<span class="msg">Could not load mandate: ${esc(e.message)}</span>`; }
+    const { mandate, signature_valid } = await api("/api/mandate"); mandateInfo = { mandate, signature_valid };
+    const c = mandate.constraints;
+    $("mandate").innerHTML = `<span class="badge ${signature_valid ? "ok" : "bad"}">${signature_valid ? "✓ Signature verified" : "✗ Signature invalid"}</span>
+      <span class="term">Destination <b>${esc(c.destination)}</b></span><span class="term">Class <b>${esc(c.flight_class)}</b></span>
+      <span class="term">Flights ≤ <b>${usd(c.max_flight_price_usd)}</b></span><span class="term">Hotel ≤ <b>${usd(c.max_hotel_per_night_usd)}</b>/night</span>
+      <span class="term">Transport ≤ <b>${usd(c.max_transport_usd)}</b></span><span class="term">Airlines <b>${esc(c.preferred_airlines.join(", "))}</b></span>
+      <span class="term">${c.refundable_required ? "Refundable <b>required</b>" : "Refundability optional"}</span><span class="term">Signed by <b>${esc(mandate.user)}</b></span>`;
+  } catch (e) { $("mandate").innerHTML = `<span class="small">Could not load mandate: ${esc(e.message)}</span>`; }
 }
 
-/* ---------- scoreboard ---------- */
-function byType(bt) {
-  if (!bt) return "";
-  return `<div style="overflow-x:auto;margin-top:12px"><table><tr><th>Failure type</th><th>Anvil</th><th>Rules-only</th></tr>
-    ${Object.entries(bt).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="${v.anvil === v.total ? "yes" : "no"}">${v.anvil}/${v.total}</td>
-      <td class="${v.baseline === v.total ? "yes" : "no"}">${v.baseline}/${v.total}</td></tr>`).join("")}</table></div>`;
+/* ---------------- provenance (live from Firestore) ---------------- */
+let rows = [];
+const fbApp = initializeApp({ apiKey: "AIzaSyCnda1Y64OGWHXepXDwD6PhiGzwNuj1iMs", authDomain: "dazzling-lodge-511607-m0.firebaseapp.com", projectId: "dazzling-lodge-511607-m0", appId: "1:733520529727:web:ee7cd8da0c036d62896b8a" });
+const fdb = initializeFirestore(fbApp, { experimentalAutoDetectLongPolling: true });
+let live = false;
+const inSession = e => e.ts >= (controls.session_start || "");
+const COLOR = { MATCH: "green", APPROVED: "green", REVIEW: "amber", CONTROL: "accent" };
+function renderTrail() {
+  const list = rows.filter(inSession);
+  $("blocks").innerHTML = [...list].reverse().map((e, i) => `${i ? '<span class="lnk"></span>' : ""}<span class="blk ${esc(e.verdict)}" data-id="${esc(e.id)}" title="${esc(e.explanation)}">${esc(e.verdict.slice(0, 5))}<br>${esc((e.hash || "").slice(0, 6))}</span>`).join("") || '<span class="small">No entries in this session yet.</span>';
+  $("trail").innerHTML = list.map(e => {
+    const a = e.action || {}, d = e.delegation || [];
+    const chain = d.length ? [d[0].from.split("@")[0], ...d.map(h => h.to)].join(" → ") : "";
+    const what = a.type === "control" ? `Control: ${esc(a.control)}${a.agent ? " " + esc(a.agent) : ""}` : a.vendor ? `${esc(KINDS[(a.type || "").replace("book_", "")] || a.type)}: ${esc(a.vendor)} ${a.price != null ? usd(a.price) : ""}` : esc(a.type || "");
+    return `<div class="entry ${esc(e.verdict)}" style="--c:var(--${COLOR[e.verdict] || "red"})">
+      <div class="row"><span><span class="chip ${esc(e.verdict)}">${esc(e.verdict)}</span> <b>${what}</b></span><span class="meta">${esc(new Date(e.ts).toLocaleTimeString())}</span></div>
+      <p class="expl">${esc(e.explanation)}</p>
+      ${e.counterfactual ? `<div class="chainline">💸 ${esc(e.counterfactual.summary)}</div>` : ""}
+      ${chain ? `<div class="chainline">Delegation: ${esc(chain)} · mandate ${esc(e.mandate_id)}</div>` : ""}
+      ${e.cart_mandate ? `<div class="chainline">🧾 Cart Mandate <span class="mono">${esc(e.cart_mandate.cartId.slice(0, 10))}…</span> · ${usd(e.cart_mandate.total)}</div>` : ""}
+      ${e.telemetry ? `<div class="chainline">⏱ ${(e.telemetry.latency_ms / 1000).toFixed(1)}s · ${e.telemetry.prompt_tokens + e.telemetry.output_tokens} tokens · ${usd4(e.telemetry.cost_usd)}</div>` : ""}
+      ${e.hash ? `<div class="chainline mono">hash ${esc(e.hash.slice(0, 16))}… ← ${esc((e.prev_hash || "").slice(0, 8))}…</div>` : ""}</div>`;
+  }).join("") || '<div class="card"><span class="small">No entries in this session yet — ask the agent above.</span></div>';
 }
+onSnapshot(query(collection(fdb, "provenance"), orderBy("ts", "desc"), limit(80)), snap => {
+  live = true; rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  $("dot").classList.add("on"); $("status").textContent = `live · ${snap.size} entries`; renderTrail();
+}, err => { $("status").textContent = "disconnected: " + err.message; });
+setTimeout(async () => { if (live) return; try { rows = await api("/api/provenance"); $("dot").classList.add("on"); $("status").textContent = `connected (REST) · ${rows.length} entries`; renderTrail(); } catch (e) { $("status").textContent = "offline"; } }, 6000);
 
-async function loadImpact() {
+async function loadChainBadge() {
+  try { const v = await api("/api/verify"); $("chainbadge").className = "badge " + (v.chain_ok ? "ok" : "bad"); $("chainbadge").textContent = v.chain_ok ? "🔗 chain verified" : "✗ chain broken at " + v.broken_at; } catch { $("chainbadge").textContent = "chain status unavailable"; }
+}
+$("tamper").onclick = async () => {
+  $("tamper").disabled = true;
   try {
-    const i = await api("/api/impact");
-    $("impact").innerHTML = `<p class="headline">${usd(i.blocked_usd)} of unauthorized spend stopped across ${i.blocked_count} blocked action${i.blocked_count === 1 ? "" : "s"}</p>
-      <div class="small">${usd(i.held_usd)} held for manager consent (${i.held_count}) · ${usd(i.over_cap_usd)} of over-cap exposure caught</div>`;
-  } catch (e) { $("impact").innerHTML = `<span class="msg">Impact unavailable: ${esc(e.message)}</span>`; }
+    const t = await api("/api/verify/tamper");
+    $("chainbadge").className = "badge bad"; $("chainbadge").textContent = "✗ chain broken at " + t.broken_at.slice(0, 6) + "…";
+    document.querySelectorAll(".blk").forEach(b => { if (b.dataset.id === t.broken_at) b.classList.add("broken"); });
+    $("tamperres").textContent = "Simulated: one entry's text was edited after the fact (in memory only, nothing written). Verification fails at that entry, so the edit cannot go unnoticed.";
+    await sleep(3500); $("tamperres").textContent = ""; loadChainBadge(); renderTrail();
+  } catch (e) { toast(e.message); }
+  $("tamper").disabled = false;
+};
+$("replay").onclick = async () => {
+  const cards = [...document.querySelectorAll("#trail .entry")].reverse(); const tr = $("trail"); tr.classList.add("replaying");
+  for (const c of cards) { cards.forEach(x => x.classList.remove("hl")); c.classList.add("hl"); c.scrollIntoView({ block: "center", behavior: "smooth" }); await sleep(900); }
+  cards.forEach(x => x.classList.remove("hl")); tr.classList.remove("replaying");
+};
+
+/* ---------------- governance ---------------- */
+let metrics = null;
+const bar = (v, max) => `<div class="bar"><i style="width:${max ? Math.min(100, 100 * v / max) : 0}%"></i></div>`;
+async function loadMetrics() {
+  try { metrics = await api("/api/metrics"); controls = metrics.controls || {}; markPaused(); renderGov(); renderTrail(); } catch (e) { toast("Metrics unavailable: " + e.message); }
 }
+function renderGov() {
+  const m = metrics; if (!m) return;
+  const t = m.totals, c = m.cost, i = m.impact;
+  $("g-since").textContent = m.since ? "· session since " + new Date(m.since).toLocaleTimeString() : "· all history";
+  $("kpis").innerHTML = [
+    ["Actions audited", t.actions, `${t.match} allowed · ${t.review} escalated · ${t.drift} blocked`],
+    ["Unauthorized spend stopped", usd(i.blocked_usd), `${i.blocked_count} blocked · ${usd(i.held_usd)} held for consent`],
+    ["Gemini spend on governing", usd4(c.cost_usd + c.agent_cost_usd), `auditor ${usd4(c.cost_usd)} · agent ${usd4(c.agent_cost_usd)}`],
+    ["Cost per audit", usd4(c.avg_cost_per_audit_usd), `${c.audits} audits · ${(c.prompt_tokens + c.output_tokens).toLocaleString()} tokens`],
+    ["Audit latency", (c.latency_p50_ms / 1000).toFixed(1) + "s", `p50 · p95 ${(c.latency_p95_ms / 1000).toFixed(1)}s`],
+    ["Return on governance", c.stopped_usd_per_dollar ? usd(c.stopped_usd_per_dollar) : "—", "unauthorized spend stopped per $1 of Gemini"],
+  ].map(([l, v, s]) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  $("agents").innerHTML = Object.entries(m.agents).map(([k, a]) => {
+    const n = a.actions || 1, paused = (controls.paused_agents || []).includes(k);
+    return `<div class="card"><div class="row"><span class="kind">${KINDS[k]} agent</span>${paused ? '<span class="chip DRIFT">PAUSED</span>' : '<span class="chip MATCH">ACTIVE</span>'}</div>
+      <div class="row" style="margin-top:8px"><div><div class="big">${a.actions} actions</div><div class="small">${usd(a.blocked_usd)} blocked · ${a.corrected_ok}/${a.corrections} self-corrections succeeded</div></div>
+        <div class="ring" style="--p:${a.clean_rate ?? 0}"><span>${a.clean_rate ?? "–"}</span></div></div>
+      <div class="stack"><i style="width:${100 * a.match / n}%;background:var(--green)"></i><i style="width:${100 * a.review / n}%;background:var(--amber)"></i><i style="width:${100 * a.drift / n}%;background:var(--red)"></i></div>
+      <div class="small">${a.match} allowed · ${a.review} escalated · ${a.drift} blocked · trust score ${a.clean_rate ?? "n/a"}</div>
+      <div style="margin-top:10px"><button class="btn sm ${paused ? "ok" : "danger"}" data-ctl="${paused ? "resume" : "pause"}" data-agent="${k}">${paused ? "▶ Resume agent" : "⏸ Pause agent (kill switch)"}</button></div></div>`;
+  }).join("");
+
+  const sig = mandateInfo?.signature_valid;
+  $("mandctl").innerHTML = `<div class="row"><span class="small">Mandate <span class="mono">mandate-001</span></span><span class="badge ${sig ? "ok" : "bad"}">${sig ? "✓ signed" : "✗ invalid"}</span></div>
+    <div class="row" style="margin:10px 0"><span class="chip ${controls.mandate_revoked ? "DRIFT" : "MATCH"}">${controls.mandate_revoked ? "REVOKED" : "ACTIVE"}</span>
+      <button class="btn sm ${controls.mandate_revoked ? "ok" : "danger"}" data-ctl="${controls.mandate_revoked ? "restore" : "revoke"}">${controls.mandate_revoked ? "Restore mandate" : "⛔ Revoke mandate"}</button></div>
+    <div class="small">Pending approvals: <b>${t.pending}</b> · approved ${t.approved} · rejected ${t.rejected}</div>
+    <div class="row" style="margin-top:10px"><button class="btn sm" id="tamperMandate">Test a forged mandate</button><span class="small" id="forgedres"></span></div>
+    <div class="small" style="margin-top:8px">Every control action is written to the same hash chain as the decisions.</div>`;
+  $("spend").innerHTML = Object.entries(m.spend.by_kind).map(([k, v]) => { const big = m.spend.largest_by_kind[k], cap = m.spend.caps[k], n = m.spend.count_by_kind[k];
+      return `<div class="row"><span>${KINDS[k]}</span><span class="small">${n} booking${n === 1 ? "" : "s"} · ${usd(v)} · largest ${usd(big)} of ${cap != null ? usd(cap) : "—"} cap</span></div>${bar(big, cap || big || 1)}`; }).join("") +
+    `<div class="small">Total approved this session: <b>${usd(m.spend.approved_usd)}</b>, every dollar backed by a signed Cart Mandate. ${Object.keys(m.spend.largest_by_kind).some(k => m.spend.caps[k] != null && m.spend.largest_by_kind[k] > m.spend.caps[k]) ? "Bookings above a cap were approved by the manager's explicit re-consent." : "No approved booking exceeds its cap."}</div>`;
+  const mx = Math.max(1, ...Object.values(m.drift_types));
+  $("types").innerHTML = Object.entries(m.drift_types).map(([k, v]) => `<div class="row"><span>${esc(k)}</span><span class="small">${v}</span></div>${bar(v, mx)}`).join("");
+  $("costbox").innerHTML = `<div class="row"><span>Auditor (Gemini audits)</span><b>${usd4(c.cost_usd)}</b></div><div class="row"><span>Agent (planner + corrections)</span><b>${usd4(c.agent_cost_usd)}</b></div>
+    <div class="row"><span>Tokens in / out</span><b>${c.prompt_tokens.toLocaleString()} / ${c.output_tokens.toLocaleString()}</b></div>
+    <div class="row"><span>Latency p50 / p95</span><b>${(c.latency_p50_ms / 1000).toFixed(1)}s / ${(c.latency_p95_ms / 1000).toFixed(1)}s</b></div>
+    <div class="small" style="margin-top:10px">Estimated from Vertex AI list prices (configurable). Governance adds about ${usd4(c.avg_cost_per_audit_usd)} per decision.</div>`;
+  $("evidence").href = BASE + "/api/evidence";
+}
+document.addEventListener("click", async ev => {
+  const b = ev.target.closest("[data-ctl]"); if (b) {
+    b.disabled = true;
+    try { await post("/api/control", { action: b.dataset.ctl, agent: b.dataset.agent }); toast("Control applied and logged to the chain"); await loadMetrics(); } catch (e) { toast(e.message); b.disabled = false; }
+  }
+  if (ev.target.id === "tamperMandate") { try { const r = await api("/api/mandate/tampered"); $("forgedres").textContent = `${r.changed} → signature ${r.signature_valid ? "valid (!)" : "REJECTED"}`; } catch (e) { toast(e.message); } }
+});
+$("newsession").onclick = async () => { await post("/api/control", { action: "new_session" }); meter.blocked = 0; paintMeter(false); legs = {}; renderLegs(); $("ticker").innerHTML = ""; await loadMetrics(); loadImpact(); toast("New session started — earlier history stays in the chain"); };
 
 async function loadScore() {
   try {
     const { rows: r, summary: s } = await api("/api/eval");
-    const missed = r.filter(x => x.expect !== "MATCH" && !x.baseline_caught);
-    const caughtOfMissed = missed.filter(x => x.anvil_caught).length;
-    $("score").innerHTML = `
-      <p class="headline">Anvil caught ${caughtOfMissed}/${missed.length} the baseline missed · ${s.anvil_false_blocks} false blocks</p>
-      <div style="overflow-x:auto"><table>
-        <tr><th>Scenario</th><th>Type</th><th>Expected</th><th>Anvil</th><th>Anvil caught</th><th>Rules-only caught</th></tr>
-        ${r.map(x => `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.drift_type || "")}</td><td><span class="chip ${esc(x.expect)}">${esc(x.expect)}</span></td>
-          <td><span class="chip ${esc(x.anvil_verdict)}">${esc(x.anvil_verdict)}</span></td>
-          <td class="${x.expect === "MATCH" ? "small" : x.anvil_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.anvil_caught ? "✓" : "✗"}</td>
-          <td class="${x.expect === "MATCH" ? "small" : x.baseline_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.baseline_caught ? "✓" : "✗"}</td></tr>`).join("")}
-      </table></div>
-      ${byType(s.by_type)}
-      <div class="small" style="margin-top:8px">Violations caught — Anvil ${s.anvil_catch_rate}/${s.violations_total} · rules-only ${s.baseline_catch_rate}/${s.violations_total}</div>`;
-  } catch (e) { $("score").innerHTML = `<span class="msg">Could not load scoreboard: ${esc(e.message)}</span>`; }
+    const bt = Object.entries(s.by_type || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="${v.anvil === v.total ? "yes" : "no"}">${v.anvil}/${v.total}</td><td class="${v.baseline === v.total ? "yes" : "no"}">${v.baseline}/${v.total}</td></tr>`).join("");
+    $("score").innerHTML = `<div class="row"><p class="big" style="margin:0">Anvil caught ${s.anvil_catch_rate}/${s.violations_total} violations · rules-only ${s.baseline_catch_rate}/${s.violations_total} · ${s.anvil_false_blocks} false blocks on ${s.legit_total} legitimate actions</p>
+        <button class="btn sm" id="rerun">↻ Re-run live eval</button></div>
+      <div class="small">${s.scenarios} scenarios × ${s.repeats} repeat${s.repeats > 1 ? "s" : ""} against live Gemini · ${s.stable_scenarios}/${s.scenarios} stable · ${s.exact_verdict_matches}/${s.scenarios} verdicts matched their label · ${s.served_from_cache} from cache</div>
+      <div class="g2" style="margin-top:12px"><div><table><tr><th>Failure type</th><th>Anvil</th><th>Rules-only</th></tr>${bt}</table></div>
+        <div class="small">Rules-only means a budget cap, supplier allowlist and destination check. It stops overage and scope, but cannot see substitution, structuring, smuggling, or text that tries to talk past the mandate.</div></div>
+      <details><summary>All ${s.scenarios} scenarios</summary><div style="overflow-x:auto"><table><tr><th>Scenario</th><th>Type</th><th>Expected</th><th>Anvil</th><th>Anvil caught</th><th>Rules-only caught</th></tr>
+        ${r.map(x => `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.drift_type || "")}</td><td><span class="chip ${esc(x.expect)}">${esc(x.expect)}</span></td><td><span class="chip ${esc(x.anvil_verdict)}">${esc(x.anvil_verdict)}</span></td>
+          <td class="${x.expect === "MATCH" ? "small" : x.anvil_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.anvil_caught ? "✓" : "✗"}</td><td class="${x.expect === "MATCH" ? "small" : x.baseline_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.baseline_caught ? "✓" : "✗"}</td></tr>`).join("")}</table></div></details>`;
+    $("rerun").onclick = async e => { e.target.disabled = true; e.target.textContent = "Running live… (about 1–2 min)"; try { await api("/api/eval?refresh=1&repeats=2"); await loadScore(); toast("Eval refreshed from live Gemini"); } catch (er) { toast(er.message); e.target.disabled = false; } };
+  } catch (e) { $("score").innerHTML = `<span class="small">Could not load scoreboard: ${esc(e.message)}</span>`; }
 }
 
-async function loadChain() {
-  try {
-    const v = await api("/api/verify");
-    $("chainbadge").className = "badge " + (v.chain_ok ? "ok" : "bad");
-    $("chainbadge").textContent = v.chain_ok ? "🔗 chain verified" : "✗ chain broken at " + v.broken_at;
-  } catch { $("chainbadge").textContent = "chain status unavailable"; }
-}
-
-/* ---------- live provenance ---------- */
-function render() {
-  const resolved = {};
-  rows.forEach(e => { if (e.action?.re_consent_for) resolved[e.action.re_consent_for] = e.verdict; });
-  const primary = rows.filter(e => !e.action?.re_consent_for);
-
-  // trip board: latest entry per kind
-  $("board").innerHTML = Object.entries(KINDS).map(([type, label]) => {
-    const e = primary.find(x => x.action?.type === type);
-    if (!e) return `<div class="card"><div class="kind">${label}</div><div class="small">No booking yet.</div></div>`;
-    const a = e.action;
-    const review = e.verdict === "REVIEW" ? (resolved[e.id]
-      ? `<div class="needs">Manager ${esc(resolved[e.id].toLowerCase())} this.</div>`
-      : `<div class="needs"><b>Needs manager approval</b> — beyond what was authorized.<br>
-         <button data-act="approve" data-id="${esc(e.id)}">Approve</button><button data-act="reject" data-id="${esc(e.id)}">Reject</button></div>`) : "";
-    return `<div class="card ${esc(e.verdict)}">
-      <div class="row"><span class="kind">${label}</span><span class="chip ${esc(e.verdict)}">${esc(e.verdict)}</span></div>
-      <div class="big">${esc(a.vendor)} · ${usd(a.price)}${a.type === "book_hotel" ? "/night" : ""}</div>
-      <div class="small">${esc([a.class, a.refundable === false ? "non-refundable" : a.refundable ? "refundable" : "", a.destination].filter(Boolean).join(" · "))}</div>
-      <div class="small">via ${esc(a.supplier)}</div>${review}</div>`;
-  }).join("");
-
-  // drift → self-correction strip: newest corrected action and the block that triggered it
-  const fixedIdx = primary.findIndex(e => e.action?.replan_reason);
-  const blocked = fixedIdx >= 0 ? primary.slice(fixedIdx + 1).find(e => e.verdict === "DRIFT") : null;
-  $("stripsec").hidden = !(blocked && fixedIdx >= 0);
-  if (blocked) {
-    const f = primary[fixedIdx], b = blocked.action;
-    $("strip").innerHTML = `
-      <div class="card blocked"><span class="chip DRIFT">BLOCKED</span>
-        <div class="big">${esc(b.vendor)} · ${esc(b.class)} · ${usd(b.price)}</div>
-        <div class="reason">${esc(f.action.replan_reason || blocked.explanation)}</div></div>
-      <div class="arrow">→</div>
-      <div class="card fixed"><span class="chip ${esc(f.verdict)}">SELF-CORRECTED · ${esc(f.verdict)}</span>
-        <div class="big">${esc(f.action.vendor)} · ${esc(f.action.class)} · ${usd(f.action.price)}</div>
-        <div class="reason">Re-planned within policy: preferred carrier, economy, refundable, under cap.</div></div>`;
-  }
-
-  // trail
-  $("trail").innerHTML = rows.map(e => {
-    const d = (e.delegation || []);
-    const chain = d.length ? [d[0].from.split("@")[0], ...d.map(h => h.to)].join(" → ") : "";
-    const a = e.action || {};
-    const what = a.vendor ? `${esc(KINDS[a.type] || a.type)}: ${esc(a.vendor)} ${a.price != null ? usd(a.price) : ""}` : esc(a.type || "");
-    return `<div class="entry ${esc(e.verdict)}">
-      <div class="row"><span><span class="chip ${esc(e.verdict)}">${esc(e.verdict)}</span> <b>${what}</b></span>
-        <span class="meta">${esc(new Date(e.ts).toLocaleString())}</span></div>
-      <p class="expl">${esc(e.explanation)}</p>
-      ${chain ? `<div class="chain">Delegation: ${esc(chain)} · mandate ${esc(e.mandate_id)}</div>` : ""}
-      ${e.counterfactual ? `<div class="chain">💸 ${esc(e.counterfactual.summary)}</div>` : ""}
-      ${e.cart_mandate ? `<div class="chain">🧾 Cart Mandate <span class="mono">${esc(e.cart_mandate.cartId.slice(0, 10))}…</span> signed · total ${usd(e.cart_mandate.total)}</div>` : ""}
-      ${e.hash ? `<div class="chain mono">hash ${esc(e.hash.slice(0, 16))}… ← ${esc((e.prev_hash || "").slice(0, 8))}…</div>` : `<div class="chain">(legacy entry, pre hash-chain)</div>`}
-    </div>`;
-  }).join("") || '<div class="card"><span class="msg">No entries yet — run a scenario above.</span></div>';
-}
-
-let live = false;
-onSnapshot(query(collection(db, "provenance"), orderBy("ts", "desc"), limit(40)), snap => {
-  live = true;
-  rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  $("dot").classList.add("on"); $("status").textContent = `connected · ${snap.size} entries`;
-  try { render(); } catch (e) { console.error(e); $("status").textContent = "render error: " + e.message; }
-  loadChain();
-}, err => { $("status").textContent = "disconnected: " + err.message; });
-
-// If the live stream hasn't connected shortly, show the log from the REST API so the page is never empty.
-setTimeout(async () => {
-  if (live) return;
-  try {
-    rows = await api("/api/provenance");
-    $("dot").classList.add("on"); $("status").textContent = `connected (REST) · ${rows.length} entries`;
-    render();
-  } catch (e) { $("status").textContent = "offline: " + e.message; }
-}, 6000);
-
-/* ---------- actions ---------- */
-async function run(path, label) {
-  const btns = document.querySelectorAll("button"); btns.forEach(b => b.disabled = true);
-  $("runmsg").textContent = `Running ${label}…`;
-  try { await api(path, { method: "POST" }); $("runmsg").textContent = `${label} complete.`; loadImpact(); }
-  catch (e) { $("runmsg").textContent = "Failed: " + e.message; }
-  btns.forEach(b => b.disabled = false);
-}
-document.querySelector(".controls").onclick = ev => { const k = ev.target.dataset.run; if (k) run("/run/" + k, ev.target.textContent); };
-$("board").onclick = ev => { const { act, id } = ev.target.dataset; if (act) run("/" + act + "/" + id, act); };
-
-$("replay").onclick = async () => {
-  const cards = [...document.querySelectorAll("#trail .entry")].reverse();
-  const trail = $("trail"); trail.classList.add("replaying");
-  for (const c of cards) {
-    cards.forEach(x => x.classList.remove("hl")); c.classList.add("hl");
-    c.scrollIntoView({ block: "center", behavior: "smooth" });
-    await new Promise(r => setTimeout(r, 900));
-  }
-  cards.forEach(x => x.classList.remove("hl")); trail.classList.remove("replaying");
-};
-
-loadMandate(); loadScore(); loadChain(); loadImpact();
+/* ---------------- boot ---------------- */
+buildFlow(); renderLegs(); loadMandate(); loadChainBadge(); loadMetrics().then(() => { loadImpact(); });
+setInterval(() => { if (document.getElementById("v-gov").classList.contains("on") && !busy) loadMetrics(); }, 20000);
 </script>
 </body>
 </html>

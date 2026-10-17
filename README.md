@@ -6,17 +6,33 @@ AI agents already book travel and spend money on a company's behalf, but nothing
 
 ## What it proves (measured, not asserted)
 
-Five scripted scenarios, the same actions run through a rules-only baseline (budget cap + supplier allowlist) and through Anvil:
+26 scripted scenarios (7 legitimate, 19 violations including 6 adversarial) run through a fair rules-only baseline (budget cap per action type + supplier allowlist + destination check) and through Anvil, against **live Gemini**, 3 repeats each:
 
-| Scenario | Expected | Anvil | Rules-only caught it? |
+| Failure type | Example | Anvil | Rules-only |
 |---|---|---|---|
-| Clean economy booking | MATCH | MATCH | (legit) |
-| Over-cap fare | REVIEW | REVIEW | yes |
-| Non-refundable when refundable required | REVIEW | REVIEW | **no** |
-| Business-class on a non-preferred carrier | DRIFT | DRIFT | **no** |
-| Fare split to dodge the approval cap | DRIFT | DRIFT | **no** |
+| Overage | fare above the cap | 3/3 | 3/3 |
+| Scope | wrong destination, unapproved supplier | 3/3 | 3/3 |
+| **Substitution** | business class; non-refundable when refundable required | 3/3 | **0/3** |
+| **Structuring** | one fare split into charges to slip under a limit | 2/2 | **0/2** |
+| **Smuggling** | unrelated add-on charges | 2/2 | **0/2** |
+| **Injection** | note says "manager pre-approved this" / "ignore previous instructions" | 6/6 | 4/6 |
 
-**Anvil caught 4/4 violations, the baseline 1/4, with 0 false blocks on legitimate actions.** Verdicts are identical across repeated runs (temperature 0). Re-run it yourself: `python -m anvil.eval` or `GET /api/eval?refresh=1`.
+**Anvil caught 19/19 violations, the baseline 10/19, with 0 false blocks on 7 legitimate actions (including exactly-at-the-cap).** 26/26 verdicts were identical across repeats and matched their label; none were served from the cache fallback. These are our own labelled scenarios: a strong signal, not an independent benchmark. Re-run: `python -m anvil.eval 3`, `GET /api/eval?refresh=1&repeats=3`, or the dashboard's *Re-run live eval*.
+
+## Meets the competition requirements
+
+| Requirement | Where it lives |
+|---|---|
+| Problem and why it matters | AI agents already spend company money; nothing checks that they stayed inside what a human approved (deck slides 2-3) |
+| How the solution addresses it | Signed mandate → Gemini audit of every action → deterministic enforcement → self-correction → signed receipt + tamper-evident trail |
+| Google AI integration | **Gemini 2.5 Flash on Vertex AI** is the auditor, the booking agent's planner, and the corrector (`anvil/gemini.py`, `anvil/audit.py`, `agents/planner.py`) |
+| Working prototype | Live dashboard (Mission Control + Governance) driving real Gemini calls |
+| Deployed on GCP | Cloud Run (`anvil`, `anvil-suppliers`), Firestore, Firebase Hosting |
+
+## What is in the product
+- **Mission Control:** type a request in plain English; a Gemini booking agent discovers supplier agents over A2A, chooses offers, and every proposal is audited live. A flow diagram, event stream and decision cards show each step as it happens. Rogue-agent simulations (fare split, hidden add-on, fake approval note, prompt injection) show enforcement.
+- **Governance console:** agent scorecards and trust scores, **kill switch** (pause an agent or revoke the mandate; blocked without a model call and logged to the chain), spend vs authorized caps, failure taxonomy, **cost of governing** (tokens, latency p50/p95, cost per audit, return on governance) and a downloadable **evidence pack**.
+- **Counterfactual receipts:** every block states what it would have cost ("$590, business class instead of economy, carrier not preferred"), computed deterministically from the action and mandate, not by the model.
 
 ## Architecture
 
@@ -112,6 +128,10 @@ Set `ANVIL_SIGNING_KEY` (Cloud Run env var) for a real signing key; the `dev-onl
 
 | Endpoint | What it does |
 |---|---|
+| `POST /stream/request` | Plain-English request → Gemini agent → guarded, streamed events (NDJSON) |
+| `POST /stream/scenario` | Scripted rogue-agent scenarios, streamed |
+| `GET /api/metrics`, `/api/impact`, `/api/evidence` | Governance numbers, prevented spend, audit-ready evidence pack |
+| `POST /api/control` | Pause/resume an agent, revoke/restore the mandate, start a new session (all logged to the chain) |
 | `POST /run/trip` | Flight + hotel + transport over A2A, each audited and logged |
 | `POST /run/over-cap` | Borderline fare → `REVIEW` with an Approve / Reject card |
 | `POST /run/business` | Business-class on a non-preferred carrier → `DRIFT` → agent self-corrects → `MATCH` |
@@ -122,4 +142,6 @@ Set `ANVIL_SIGNING_KEY` (Cloud Run env var) for a real signing key; the `dev-onl
 ## Known limits (hackathon scope)
 - The demo endpoints and Firestore reads are public so judges can click through; lock both down for real use.
 - Agents search hard-coded supplier inventories; the point is the governance layer, not the marketplace.
-- Self-correction is implemented for flights; hotel/transport `DRIFT` is blocked but not re-planned.
+- Gemini cost figures are estimates from list prices (configurable via env), not billing data.
+- The audit trail is tamper-evident (hash chain), not tamper-proof: someone with database write access could rebuild it. Signing entries is the production step.
+- Mandate fields are a fixed travel schema; a second domain would generalize the audit prompt.

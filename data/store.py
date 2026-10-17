@@ -144,7 +144,10 @@ def log_provenance(mandate_id, action, audit, delegation=None, extra=None):
 def verify_chain():
     """Returns (True, None) or (False, id_of_first_broken_entry).
     Checks every entry's own hash, then that the entries form ONE unbroken line (no forks, no gaps)."""
-    entries = _hashed_entries()
+    return verify_entries(_hashed_entries())
+
+
+def verify_entries(entries):
     for id_, e in entries.items():
         body = {k: v for k, v in e.items() if k != "hash"}
         if hashlib.sha256((e["prev_hash"] + _canonical(body)).encode()).hexdigest() != e["hash"]:

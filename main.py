@@ -75,7 +75,7 @@ def _log_steps(intent, steps, agent_telemetry=None):
             extra["agent_telemetry"] = agent_telemetry
             agent_telemetry = None
         if st["audit"]["verdict"] in ("DRIFT", "REVIEW"):
-            extra["counterfactual"] = counterfactual(intent["constraints"], st["action"], st["audit"]["verdict"])
+            extra["counterfactual"] = st["counterfactual"] = counterfactual(intent["constraints"], st["action"], st["audit"]["verdict"])
         if st["audit"]["verdict"] == "MATCH":
             extra["cart_mandate"] = st["cart_mandate"] = cart_mandate(intent, st["action"])
         st["provenance_id"] = log_provenance(intent["mandateId"], st["action"], st["audit"],
@@ -318,6 +318,20 @@ def api_mandate_tampered():
 def api_verify():
     ok, broken_at = verify_chain()
     return jsonify({"chain_ok": ok, "broken_at": broken_at})
+
+
+@app.route("/api/verify/tamper")
+def api_verify_tamper():
+    """Demo: re-verify the chain with ONE entry's text altered in memory (nothing is written) and show where it breaks."""
+    from data.store import _hashed_entries, verify_entries
+    entries = _hashed_entries()
+    target = request.args.get("id") or (max(entries, key=lambda i: entries[i]["ts"]) if entries else None)
+    if target not in entries:
+        return jsonify({"error": "no such entry"}), 404
+    forged = {k: json.loads(json.dumps(v)) for k, v in entries.items()}
+    forged[target]["explanation"] = "EDITED AFTER THE FACT"
+    ok, broken = verify_entries(forged)
+    return jsonify({"tampered_entry": target, "chain_ok": ok, "broken_at": broken})
 
 
 @app.route("/api/provenance")

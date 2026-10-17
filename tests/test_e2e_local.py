@@ -153,6 +153,9 @@ ev = c.get("/api/evidence")
 pack = json.loads(ev.get_data(as_text=True))
 check("evidence pack: session-scoped, signed mandate, chain ok, digest", ev.status_code == 200 and pack["signature_valid"] and pack["chain_ok"] and len(pack["pack_sha256"]) == 64 and len([e for e in pack["entries"] if e["verdict"] == "MATCH"]) == 3, [e["verdict"] for e in pack["entries"]])
 
+tv = c.get("/api/verify/tamper").get_json()
+check("tamper simulation: breaks the chain without writing", tv["chain_ok"] is False and c.get("/api/verify").get_json()["chain_ok"] is True, tv)
+
 # --- tampered intent must stop /run
 from data.store import get_mandate
 doc = fake_db.collection("mandates").docs["mandate-001"]

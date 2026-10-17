@@ -1,25 +1,17 @@
-# Anvil — 3-minute demo video: script & shot list (Playbook Step D2)
+# Anvil — 3-minute demo script (new Mission Control UI)
 
-**You record this** (screen + voice). Everything below is tested against the live dashboard: https://dazzling-lodge-511607-m0.web.app
-Record each beat separately and stitch; add captions. Record at 1080p, browser zoom 100%, dark or light mode (both work). Before recording: open the URL once to warm Cloud Run, and hard-refresh.
-
-**Buttons (control bar, top):** `Clean trip` (~13 s) · `Borderline (REVIEW)` (~5 s) · `Drift → self-correct` (~9 s). Rehearse by clicking these, not typing URLs.
-**Tip:** the page shows "Running …" while a scenario runs. Wait for "complete." before moving on; use the wait to narrate.
+Before recording: open the dashboard, **Governance → New session** (clears the screen, keeps the chain). Use dark theme. Have the deck's Impact slide ready for 0:00. Do one dry run first: Gemini calls take 3-4 s each.
 
 | Time | Beat | On screen | Say (suggested) |
 |---|---|---|---|
-| 0:00–0:20 | **The problem** | Title card, then the ANVIL header | "AI agents already book travel and spend company money. But nothing checks that they stayed inside what a human actually approved. Anvil is that check." *(Add one sourced stat from the project brief here — we do not invent numbers.)* |
-| 0:20–0:45 | **The signed mandate** | Scroll to **The authorization** card. Point at the terms, then the green **✓ Signature verified** badge. Click **Test a tampered copy** → red "✗ rejected — signature does not match". | "The manager signs a mandate: economy, preferred airlines, price caps, refundable. It's cryptographically signed. Watch what happens to a forged copy — someone raised the flight cap to 99,999. Rejected." |
-| 0:45–1:15 | **Happy path** | Click **Clean trip**. While it runs, narrate. Show **Trip board**: Flight / Hotel / Transport all green MATCH. Scroll to the **Provenance trail**: three entries with the delegation line and 🧾 Cart Mandate. | "One mandate, three agents. They discover each other over A2A, negotiate, and propose bookings. Anvil checks each against the mandate — all match. Every entry traces back to the one human approval: manager, orchestrator, agent, supplier." |
-| 1:15–2:05 | **The hero beat** *(slow down)* | Click **Drift → self-correct**. The **Drift → self-correction** strip appears: red BLOCKED (Emirates business $590) → arrow → green SELF-CORRECTED (Air India economy $480). Read the red reason aloud. Then click **Borderline (REVIEW)**: gold *Needs manager approval* card → click **Approve** → trail shows APPROVED. | "Rushing to hit a deadline, the agent books business class on a non-preferred airline. Price is under the cap — a rules engine would let it through. Anvil blocks it and says why: the cabin class doesn't match what the manager authorized. And it doesn't just say no — the agent re-plans on its own: economy, preferred carrier, refundable, booked. A borderline case isn't blocked, it's escalated: one tap from the manager." |
-| 2:05–2:35 | **The proof** | Scroll to **Scoreboard**. Highlight the headline and the ✗ marks in the *Rules-only caught* column. | "Same five actions, two systems. A rules-only baseline caught one of four violations. Anvil caught all four — including the refundability swap, the class upgrade and the split charge a rule can't express — with zero false blocks on legitimate actions." |
-| 2:35–3:00 | **The vision** | Scroll to the trail, point at **🔗 chain verified**, click **▶ Replay**. End on the ANVIL wordmark. | "Every decision is in a hash-chained, tamper-evident trail you can replay. Today it's travel and expenses; the same engine governs cloud spend, SaaS and procurement — the control plane for agent spending. Anvil." |
+| 0:00–0:20 | **Problem** | Title card, then the ANVIL header | "AI agents already book travel and spend company money. Nothing checks that they stayed inside what a human approved. Anvil is that check." *(add one sourced statistic here; do not invent numbers)* |
+| 0:20–0:40 | **The mandate** | Scroll to **The authorization**. Point at the terms and the green *Signature verified* badge | "The manager signs a mandate: economy, refundable, preferred airlines, price caps. It's cryptographically signed; a forged copy is rejected." |
+| 0:40–1:05 | **Clean request** | Click **✓ Clean trip**. Watch the diagram light up: request → A2A discovery → Gemini picks offers → Guard audits → Executor | "A Gemini booking agent discovers three supplier agents over A2A and picks offers. Anvil audits every proposal with Gemini before anything is booked. All three match; each gets a signed Cart Mandate." |
+| 1:05–1:55 | **Hero beat** *(slow down)* | Click **😤 Tempt the agent**. The agent proposes Emirates business class. Card stamps **BLOCKED**, shows the reason and the 💸 counterfactual, then **SELF-CORRECTED** to Air India economy. The *Unauthorized spend stopped* meter ticks up | "The employee pushes for business class and the agent obliges. Anvil blocks it, explains exactly why, and tells the agent. The agent re-plans from that reason and the fixed booking passes. $590 of unauthorized spend, stopped before it happened." |
+| 1:55–2:20 | **Attack** | Click **🗣 Fake “pre-approved” note** | "Here a rogue agent writes 'manager pre-approved this' on an over-cap fare. Free text can't authorize anything. Anvil still escalates it for the manager's one-tap approval." Click **Approve**. |
+| 2:20–2:45 | **Governance** | Open the **Governance** tab. Point at agent scorecards, cost per audit, and click **⏸ Pause agent** on Hotel, then run the trip | "Operators get scorecards, cost of governing — about a fifth of a cent per decision — and a kill switch. Pause the hotel agent and its next action is blocked with no model call." |
+| 2:45–3:00 | **Proof and close** | Scroll to the scoreboard (19/19 vs 10/19, 0 false blocks), then **⚠ Simulate tampering** on the trail | "Across 26 scenarios on live Gemini, Anvil caught 19 of 19 violations; rules-only caught 10. Zero false blocks. Every decision is in a tamper-evident chain. Today it's travel; the same engine governs procurement and cloud spend. Anvil." |
 
-## Checklist before you hit record
-- [ ] Open the live URL once to warm Cloud Run (cold start adds a few seconds).
-- [ ] Click each of the 3 buttons once as a dry run; confirm the strip + trip board look right.
-- [ ] If a run fails on stage, the verdicts are cached and stable (temperature 0); just click again.
-- [ ] Fallback if Wi-Fi dies: run locally (`python main.py`, API at http://localhost:8080) and use the recorded video.
-
-## Publish
-- [ ] Upload as **unlisted** on YouTube, open the link in an incognito window, confirm it plays and is ≤ 3:00.
+## Fallbacks
+- If a run stalls, click **↺ New session** and retry; the backend is on Cloud Run and may cold-start on the first call (hit the URL once before recording).
+- Local fallback: `python main.py` (API on :8080) and open the dashboard with `?api=http://localhost:8080`.

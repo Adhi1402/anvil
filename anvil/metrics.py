@@ -56,9 +56,12 @@ def metrics_summary(entries, controls=None, mandate=None):
 
     carts = [e["cart_mandate"] for e in entries if e.get("cart_mandate")]
     spend = {k: 0 for k in KINDS}
+    largest = {k: 0 for k in KINDS}                  # caps are per booking, so compare the largest booking, not the sum
+    count = {k: 0 for k in KINDS}
     for c in carts:
         for it in c["items"]:
-            spend[it["kind"].replace("book_", "")] += it["amount"]
+            k = it["kind"].replace("book_", "")
+            spend[k] += it["amount"]; count[k] += 1; largest[k] = max(largest[k], it["amount"])
     caps = {}
     if mandate:
         caps = {"flight": mandate.get("max_flight_price_usd"), "hotel": mandate.get("max_hotel_per_night_usd"),
@@ -79,7 +82,8 @@ def metrics_summary(entries, controls=None, mandate=None):
                  "avg_cost_per_audit_usd": round(cost / len(tele), 6) if tele else 0,
                  "latency_p50_ms": _pct(lat, 0.5), "latency_p95_ms": _pct(lat, 0.95),
                  "stopped_usd_per_dollar": round(imp["blocked_usd"] / cost) if cost else None},
-        "spend": {"approved_usd": sum(spend.values()), "by_kind": spend, "caps": caps},
+        "spend": {"approved_usd": sum(spend.values()), "by_kind": spend, "largest_by_kind": largest,
+                  "count_by_kind": count, "caps": caps},
         "drift_types": drift_types,
         "impact": imp,
         "controls": controls,
