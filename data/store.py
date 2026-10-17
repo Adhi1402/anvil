@@ -1,5 +1,5 @@
 """Firestore access: mandates + provenance (append-only audit log)."""
-import os, json, hmac, hashlib, uuid
+import os, json, hmac, hashlib, time, uuid
 from datetime import datetime, timezone
 from google.cloud import firestore
 
@@ -124,21 +124,53 @@ def _latest_hash():
     return max(tips, key=lambda e: e["ts"])["hash"]
 
 
+def _tip_ref():
+    return db().collection("meta").document("chain_tip")
+
+
+def _ensure_tip():
+    """One-time bootstrap: the stored chain tip starts from the scan result (or GENESIS). After that, appends never scan."""
+    if not _tip_ref().get().exists:
+        _tip_ref().set({"hash": _latest_hash()})
+
+
+def _append(build):
+    """Atomically read the chain tip, build the next entry on top of it, and write entry + new tip.
+    Two writers (two judges, two instances) can never both extend the same tip, so the chain cannot fork,
+    and an append costs O(1) reads however long the log is."""
+    client = db()
+
+    def work(txn):
+        tip = _tip_ref().get(transaction=txn).to_dict()["hash"]
+        entry = build(tip)
+        new_ref = client.collection("provenance").document()
+        txn.set(new_ref, entry)
+        txn.set(_tip_ref(), {"hash": entry["hash"], "ts": entry["ts"]})
+        return new_ref.id
+
+    if hasattr(client, "atomic"):                      # in-memory test double
+        return client.atomic(work)
+    return firestore.transactional(work)(client.transaction())
+
+
 def log_provenance(mandate_id, action, audit, delegation=None, extra=None):
-    prev = _latest_hash()
-    entry = {
-        "ts": datetime.now(timezone.utc).isoformat(),
-        "mandate_id": mandate_id,
-        "action": action,
-        "verdict": audit["verdict"], "severity": audit["severity"],
-        "violations": audit["violations"], "explanation": audit["explanation"],
-        "delegation": delegation or [],
-        "prev_hash": prev,
-    }
-    entry.update(extra or {})                 # e.g. cart_mandate, intent_signature
-    entry["hash"] = hashlib.sha256((prev + _canonical(entry)).encode()).hexdigest()
-    _, ref = db().collection("provenance").add(entry)
-    return ref.id
+    _ensure_tip()
+
+    def build(prev):
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "mandate_id": mandate_id,
+            "action": action,
+            "verdict": audit["verdict"], "severity": audit["severity"],
+            "violations": audit["violations"], "explanation": audit["explanation"],
+            "delegation": delegation or [],
+            "prev_hash": prev,
+        }
+        entry.update(extra or {})                 # e.g. cart_mandate, intent_signature
+        entry["hash"] = hashlib.sha256((prev + _canonical(entry)).encode()).hexdigest()
+        return entry
+
+    return _append(build)
 
 
 def verify_chain():
@@ -171,14 +203,25 @@ def list_provenance(limit=20):
 
 
 # ---- operator controls (kill switch + demo session marker). Changes are logged to the provenance chain. ----
-def get_controls():
+CONTROL_TTL_S = int(os.environ.get("ANVIL_CONTROL_TTL_S", "180"))
+
+
+def _raw_controls():
     doc = db().collection("controls").document("state").get()
-    d = doc.to_dict() if doc.exists else {}
-    return {"paused_agents": d.get("paused_agents", []), "mandate_revoked": d.get("mandate_revoked", False),
-            "session_start": d.get("session_start", "")}
+    return doc.to_dict() if doc.exists else {}
+
+
+def get_controls():
+    """Effective controls. Pauses and revocations AUTO-EXPIRE (default 3 min) so one visitor cannot leave a shared demo
+    blocked for everyone. Production: per-tenant controls with no expiry."""
+    d, now = _raw_controls(), time.time()
+    paused_until = {k: v for k, v in (d.get("paused_until") or {}).items() if v > now}
+    revoked_until = d.get("revoked_until", 0)
+    return {"paused_agents": sorted(paused_until), "mandate_revoked": revoked_until > now,
+            "paused_until": paused_until, "revoked_until": revoked_until if revoked_until > now else 0,
+            "ttl_s": CONTROL_TTL_S, "session_start": d.get("session_start", "")}
 
 
 def set_controls(**changes):
-    state = {**get_controls(), **changes}
-    db().collection("controls").document("state").set(state)
-    return state
+    db().collection("controls").document("state").set({**_raw_controls(), **changes})
+    return get_controls()

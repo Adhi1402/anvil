@@ -8,3 +8,5 @@ cryptography==46.0.5
 jwcrypto==1.5.6
 sd-jwt==0.10.4
 pydantic==2.12.5
+# Google's official A2A client for the buyer agents (falls back to the built-in client if unavailable)
+a2a-sdk==1.2.2

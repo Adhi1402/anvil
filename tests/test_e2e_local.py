@@ -220,6 +220,31 @@ else:
     check("ap2 disabled: behaviour identical to pre-AP2 (3 MATCH, no ap2 data anywhere)", [x["audit"]["verdict"] for x in steps] == ["MATCH"] * 3 and not any("ap2" in x["audit"] for x in steps))
     check("ap2 disabled: verify endpoint explains itself", c.get("/api/ap2/verify/" + steps[0]["provenance_id"]).status_code == 400)
 
+# --- scalability: concurrent writers must not fork the chain; controls must auto-expire
+import threading
+from data import store as _store
+fake_db.collection("provenance").docs.clear(); fake_db.collection("meta").docs.clear()
+def _writer(i):
+    for j in range(5):
+        _store.log_provenance("mandate-001", {"type": "book_flight", "n": f"{i}-{j}"}, {"verdict": "MATCH", "severity": "none", "violations": [], "explanation": "load"})
+ts_ = [threading.Thread(target=_writer, args=(i,)) for i in range(12)]
+[t.start() for t in ts_]; [t.join() for t in ts_]
+ents = [d.to_dict() for d in fake_db.collection("provenance").stream()]
+check("concurrency: 60 simultaneous appends from 12 writers all land", len(ents) == 60)
+check("concurrency: every entry extends a distinct tip (no fork)", len({e["prev_hash"] for e in ents}) == 60, len({e["prev_hash"] for e in ents}))
+check("concurrency: chain still verifies as ONE line", c.get("/api/verify").get_json()["chain_ok"] is True)
+tip = fake_db.collection("meta").document("chain_tip").get().to_dict()["hash"]
+check("concurrency: stored tip equals the true tip", tip == _store._latest_hash())
+fake_db.collection("controls").docs.clear()
+c.post("/api/control", json={"action": "pause", "agent": "hotel"})
+check("controls: pause is active", _store.get_controls()["paused_agents"] == ["hotel"])
+fake_db.collection("controls").docs["state"]["paused_until"]["hotel"] = 1          # pretend it was set long ago
+check("controls: an expired pause stops applying by itself", _store.get_controls()["paused_agents"] == [])
+c.post("/api/control", json={"action": "revoke"})
+check("controls: revoke is active", _store.get_controls()["mandate_revoked"] is True)
+fake_db.collection("controls").docs["state"]["revoked_until"] = 1
+check("controls: an expired revoke stops applying by itself", _store.get_controls()["mandate_revoked"] is False)
+
 # --- tampered intent must stop /run
 from data.store import get_mandate
 doc = fake_db.collection("mandates").docs["mandate-001"]

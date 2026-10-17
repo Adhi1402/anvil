@@ -43,7 +43,7 @@ def gather_offers(mandate):
     for kind in KINDS:
         card = discover(kind)
         supplier, offers = _offers(kind, {"destination": mandate["destination"], "max_price": None})
-        out[kind] = {"card": card["name"], "supplier": supplier, "offers": offers}
+        out[kind] = {"card": card["name"], "via": card.get("via", ""), "supplier": supplier, "offers": offers}
     return out
 
 

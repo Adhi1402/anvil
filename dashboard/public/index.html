@@ -402,7 +402,7 @@ async function handle(ev) {
     case "agent_start": started = true; resetRun(); node("manager", "active"); packet("manager-orch"); node("orch", "active", 1400);
       tick(`Employee request: <i>“${esc(ev.request)}”</i>`); break;
     case "discovered": packet("orch-" + ev.kind); node(ev.kind, "active");
-      tick(`Discovered <b>${esc(ev.agent)}</b> via its A2A Agent Card · ${ev.offers} offers`); break;
+      tick(`Discovered <b>${esc(ev.agent)}</b> via its A2A Agent Card · ${ev.offers} offers${ev.via ? ` · <span class="mono">${esc(ev.via)}</span>` : ""}`); break;
     case "planning": packet("orch-gemini", "var(--accent)"); node("gemini", "active", 2400);
       tick(`<b>Gemini</b> is choosing an offer per leg for the request`); break;
     case "planner_fallback": tick(`Planner fell back to the scripted agent (${esc(ev.message)})`, "REVIEW"); break;
@@ -551,12 +551,12 @@ function renderGov() {
     ["Gemini spend on governing", usd4(c.cost_usd + c.agent_cost_usd), `auditor ${usd4(c.cost_usd)} · agent ${usd4(c.agent_cost_usd)}`],
     ["Cost per audit", usd4(c.avg_cost_per_audit_usd), `${c.audits} audits · ${(c.prompt_tokens + c.output_tokens).toLocaleString()} tokens`],
     ["Audit latency", (c.latency_p50_ms / 1000).toFixed(1) + "s", `p50 · p95 ${(c.latency_p95_ms / 1000).toFixed(1)}s`],
-    ["Return on governance", c.stopped_usd_per_dollar ? usd(c.stopped_usd_per_dollar) : "—", "unauthorized spend stopped per $1 of Gemini"],
+    ["Stopped per $1 of Gemini", c.stopped_usd_per_dollar ? usd(c.stopped_usd_per_dollar) : "—", "this session only, mostly simulated attacks"],
   ].map(([l, v, s]) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
   $("agents").innerHTML = Object.entries(m.agents).map(([k, a]) => {
     const n = a.actions || 1, paused = (controls.paused_agents || []).includes(k);
-    return `<div class="card"><div class="row"><span class="kind">${KINDS[k]} agent</span>${paused ? '<span class="chip DRIFT">PAUSED</span>' : '<span class="chip MATCH">ACTIVE</span>'}</div>
+    return `<div class="card"><div class="row"><span class="kind">${KINDS[k]} agent</span>${paused ? `<span class="chip DRIFT">PAUSED · auto-resumes in ${Math.max(0, Math.round((controls.paused_until?.[k] || 0) - Date.now() / 1000))}s</span>` : '<span class="chip MATCH">ACTIVE</span>'}</div>
       <div class="row" style="margin-top:8px"><div><div class="big">${a.actions} actions</div><div class="small">${usd(a.blocked_usd)} blocked · ${a.corrected_ok}/${a.corrections} self-corrections succeeded</div></div>
         <div class="ring" style="--p:${a.clean_rate ?? 0}"><span>${a.clean_rate ?? "–"}</span></div></div>
       <div class="stack"><i style="width:${100 * a.match / n}%;background:var(--green)"></i><i style="width:${100 * a.review / n}%;background:var(--amber)"></i><i style="width:${100 * a.drift / n}%;background:var(--red)"></i></div>
@@ -566,11 +566,11 @@ function renderGov() {
 
   const sig = mandateInfo?.signature_valid;
   $("mandctl").innerHTML = `<div class="row"><span class="small">Mandate <span class="mono">mandate-001</span></span><span class="badge ${sig ? "ok" : "bad"}">${sig ? "✓ signed" : "✗ invalid"}</span></div>
-    <div class="row" style="margin:10px 0"><span class="chip ${controls.mandate_revoked ? "DRIFT" : "MATCH"}">${controls.mandate_revoked ? "REVOKED" : "ACTIVE"}</span>
+    <div class="row" style="margin:10px 0"><span class="chip ${controls.mandate_revoked ? "DRIFT" : "MATCH"}">${controls.mandate_revoked ? `REVOKED · auto-restores in ${Math.max(0, Math.round((controls.revoked_until || 0) - Date.now() / 1000))}s` : "ACTIVE"}</span>
       <button class="btn sm ${controls.mandate_revoked ? "ok" : "danger"}" data-ctl="${controls.mandate_revoked ? "restore" : "revoke"}">${controls.mandate_revoked ? "Restore mandate" : "⛔ Revoke mandate"}</button></div>
     <div class="small">Pending approvals: <b>${t.pending}</b> · approved ${t.approved} · rejected ${t.rejected}</div>
     <div class="row" style="margin-top:10px"><button class="btn sm" id="tamperMandate">Test a forged mandate</button><span class="small" id="forgedres"></span></div>
-    <div class="small" style="margin-top:8px">Every control action is written to the same hash chain as the decisions.</div>`;
+    <div class="small" style="margin-top:8px">Every control action is written to the same hash chain as the decisions. Pauses and revocations auto-expire so a shared demo can't be left blocked.</div>`;
   $("spend").innerHTML = Object.entries(m.spend.by_kind).map(([k, v]) => { const big = m.spend.largest_by_kind[k], cap = m.spend.caps[k], n = m.spend.count_by_kind[k];
       return `<div class="row"><span>${KINDS[k]}</span><span class="small">${n} booking${n === 1 ? "" : "s"} · ${usd(v)} · largest ${usd(big)} of ${cap != null ? usd(cap) : "—"} cap</span></div>${bar(big, cap || big || 1)}`; }).join("") +
     `<div class="small">Total approved this session: <b>${usd(m.spend.approved_usd)}</b>, every dollar backed by a signed Cart Mandate. ${Object.keys(m.spend.largest_by_kind).some(k => m.spend.caps[k] != null && m.spend.largest_by_kind[k] > m.spend.caps[k]) ? "Bookings above a cap were approved by the manager's explicit re-consent." : "No approved booking exceeds its cap."}</div>`;

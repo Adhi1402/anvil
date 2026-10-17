@@ -164,7 +164,7 @@ def stream_request():
         yield _ev("agent_start", request=text)
         gathered = planner.gather_offers(mandate)
         for kind, g in gathered.items():
-            yield _ev("discovered", kind=kind, agent=g["card"], offers=len(g["offers"]))
+            yield _ev("discovered", kind=kind, agent=g["card"], via=g["via"], offers=len(g["offers"]))
         yield _ev("planning")
         try:
             plan, meta = planner.choose(mandate, text, gathered)
@@ -276,13 +276,19 @@ def api_control():
         return ("", 204)
     body = request.get_json(silent=True) or {}
     act, agent = body.get("action"), body.get("agent")
-    st = get_controls()
-    paused = set(st["paused_agents"])
+    from data.store import CONTROL_TTL_S, _raw_controls
+    raw, now = _raw_controls(), time.time()
+    paused_until = dict(raw.get("paused_until") or {})
     if act in ("pause", "resume") and agent in ("flight", "hotel", "transport"):
-        (paused.add if act == "pause" else paused.discard)(agent)
-        changes, note = {"paused_agents": sorted(paused)}, f"{agent} agent {'paused' if act == 'pause' else 'resumed'} by the manager"
+        if act == "pause":
+            paused_until[agent] = now + CONTROL_TTL_S
+        else:
+            paused_until.pop(agent, None)
+        changes = {"paused_until": paused_until}
+        note = f"{agent} agent {'paused' if act == 'pause' else 'resumed'} by the manager" + (f" (auto-resumes in {CONTROL_TTL_S}s)" if act == "pause" else "")
     elif act in ("revoke", "restore"):
-        changes, note = {"mandate_revoked": act == "revoke"}, f"mandate {'revoked' if act == 'revoke' else 'restored'} by the manager"
+        changes = {"revoked_until": now + CONTROL_TTL_S if act == "revoke" else 0}
+        note = f"mandate {'revoked' if act == 'revoke' else 'restored'} by the manager" + (f" (auto-restores in {CONTROL_TTL_S}s)" if act == "revoke" else "")
     elif act == "new_session":
         changes, note = {"session_start": datetime.now(timezone.utc).isoformat()}, "new demo session started (earlier history is kept in the chain)"
     else:
@@ -306,6 +312,13 @@ def api_evidence():
     pack["pack_sha256"] = hashlib.sha256(json.dumps(pack, sort_keys=True, default=str).encode()).hexdigest()
     return Response(json.dumps(pack, indent=2, default=str), mimetype="application/json",
                     headers={"Content-Disposition": "attachment; filename=anvil-evidence-pack.json"})
+
+
+@app.route("/api/a2a")
+def api_a2a():
+    """Which A2A client the buyer agents are using (official a2a-sdk vs the built-in fallback)."""
+    from agents import a2a
+    return jsonify(a2a.status())
 
 
 @app.route("/api/ap2")

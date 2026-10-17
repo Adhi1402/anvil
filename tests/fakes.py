@@ -18,7 +18,7 @@ class _Ref:
     def __init__(self, col, id_):
         self.col, self.id = col, id_
 
-    def get(self):
+    def get(self, transaction=None):
         return _Doc(self.id, self.col.docs.get(self.id))
 
     def set(self, data):
@@ -58,8 +58,8 @@ class _Col(_Query):
         self.docs = {}
         super().__init__(self)
 
-    def document(self, id_):
-        return _Ref(self, id_)
+    def document(self, id_=None):
+        return _Ref(self, id_ or uuid.uuid4().hex[:20])
 
     def add(self, data):
         id_ = uuid.uuid4().hex[:20]
@@ -67,9 +67,20 @@ class _Col(_Query):
         return None, _Ref(self, id_)
 
 
+class _Txn:
+    def set(self, ref, data):
+        ref.set(data)
+
+
 class FakeFirestore:
     def __init__(self):
         self.cols = {}
+        self._lock = __import__("threading").RLock()
+
+    def atomic(self, fn):
+        """Stand-in for a Firestore transaction: serialises read-modify-write like the real thing does."""
+        with self._lock:
+            return fn(_Txn())
 
     def collection(self, name):
         return self.cols.setdefault(name, _Col())

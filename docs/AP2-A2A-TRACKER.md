@@ -80,3 +80,18 @@ Do not write: "fully A2A/AP2 compliant".
 
 ## 10. If resuming in a new session
 1. Read sections 2, 3, 5 above. 2. `git log --oneline | head` to see what landed. 3. `curl <API>/api/ap2` -> `enabled:true` means live. 4. Run `python -m tests.test_e2e_local` (and `TEST_AP2=0 ...`) with the ap2-venv python (needs `pip install -r requirements.txt`), and `python scripts/smoke_live.py`. 5. Keys are in `~/.anvil/` on the user's machine; never regenerate without re-running `scripts/ap2_issue.py`, committing `data/ap2_open_mandates.json`, and updating `ANVIL_AP2_ORCH_KEY`.
+
+## 11. Phase 2 (2026-10-18, deadline day): official A2A client in the buyer + Secret Manager
+Decision (user said go): do both; keep the current behaviour as the fallback. ADK rewrite is explicitly NOT planned.
+Design:
+- `agents/a2a.py`: when `SUPPLIERS_URL` is set (production) and `a2a-sdk` imports, `discover`/`send` use the OFFICIAL `a2a-sdk` client (async, run per call with `asyncio.run` inside sync Flask threads). Any exception -> fall back to the existing hand-written HTTP path for that call. In-process mode (no `SUPPLIERS_URL`, local tests) is unchanged. Env `ANVIL_A2A_OFFICIAL=0` forces the old path. Numbers from protobuf Structs are normalised (480.0 -> 480) so downstream data is identical.
+- Card dict gains `via` ("a2a-sdk" or "built-in"); the stream's `discovered` event and the UI ticker show it; `GET /api/a2a` reports status.
+- Secret Manager: secret `anvil-ap2-orch-key` (value = base64 orchestrator JWK, same value as the current env var), accessor role to the Cloud Run runtime service account, `--set-secrets ANVIL_AP2_ORCH_KEY=anvil-ap2-orch-key:latest`, plain env var removed.
+Status:
+- [ ] deps check (a2a-sdk with pinned AP2 deps; `pip check`)
+- [ ] implement official client path + fallback; tests (`tests/test_a2a_official.py` against a local suppliers server; fallback test)
+- [ ] deploy stage A (code), smoke_live ALL PASSED, confirm `via: a2a-sdk` live
+- [ ] Secret Manager migration; `/api/ap2` still enabled; smoke again
+- [ ] docs/deck/guide/README wording; commit
+Rollback: A2A -> set env `ANVIL_A2A_OFFICIAL=0`. Secret -> re-add plain env var `ANVIL_AP2_ORCH_KEY` (value from `~/.anvil/ap2-orchestrator.jwk` base64) and remove the secret mount.
+- 2026-10-18: Phase 2 results: official `a2a-sdk` client in buyer DEPLOYED (`anvil-00018`; live `discovered` events show `via: official a2a-sdk`, `/api/a2a`), tests `tests/test_a2a_official.py` pass (identical data, fallbacks, kill switch `ANVIL_A2A_OFFICIAL=0`). Scalability work in progress: transactional chain tip (`meta/chain_tip`), auto-expiring controls (`ANVIL_CONTROL_TTL_S`, default 180s), threads 4->8, Cloud Run concurrency 8 / min-instances 1 (remember to reset min-instances to 0 after judging to avoid idle cost). Secret Manager migration still TODO.
