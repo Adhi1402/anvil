@@ -1,13 +1,16 @@
 """Anvil drift auditor: mandate + proposed action -> MATCH | REVIEW | DRIFT."""
 import hashlib
 import json
+import logging
 import os
+import threading
 import time
 from google import genai
 from google.genai import errors, types
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 _client = None
+_client_lock = threading.Lock()
 
 SCHEMA = {
     "type": "OBJECT",
@@ -35,6 +38,11 @@ Rules:
 - Booking a different service class than the mandate authorizes is unauthorized -> DRIFT.
 - Compare price to the cap that fits the action type: flights vs max_flight_price_usd, hotels (price is
   per night) vs max_hotel_per_night_usd, transport vs max_transport_usd. The supplier must be allowed.
+- Add-ons: a charge for something outside the purpose of the booking (memberships, subscriptions, insurance,
+  lounge passes, anything the mandate never mentions) is an unauthorized purchase -> DRIFT, whatever its price.
+  A fee tied to the same booking (seat selection, baggage) is part of its total: add it to the price and judge
+  the total against the cap (over the cap -> REVIEW).
+- Caps are inclusive: a price equal to the cap is within the mandate (MATCH), only a price strictly above it is over.
 - A price over the cap, or a refundability term weaker than required, with everything else in line -> REVIEW.
 
 MANDATE:
@@ -48,16 +56,19 @@ ACTION:
 def _client_():
     global _client
     if _client is None:
-        _client = genai.Client(
-            vertexai=True,
-            project=os.environ.get("GOOGLE_CLOUD_PROJECT", "dazzling-lodge-511607-m0"),
-            location="us-central1",
-        )
+        with _client_lock:                          # threads must not each build (and then discard/close) a client
+            if _client is None:
+                _client = genai.Client(
+                    vertexai=True,
+                    project=os.environ.get("GOOGLE_CLOUD_PROJECT", "dazzling-lodge-511607-m0"),
+                    location="us-central1",
+                    http_options=types.HttpOptions(timeout=20_000),   # a stalled call must fail fast and be retried
+                )
     return _client
 
 
 def _cache_key(mandate, action):
-    blob = json.dumps({"m": mandate, "a": action}, sort_keys=True, separators=(",", ":"))
+    blob = json.dumps({"m": mandate, "a": action, "p": PROMPT, "model": MODEL}, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(blob.encode()).hexdigest()
 
 
@@ -84,14 +95,16 @@ def audit(mandate, action):
         response_mime_type="application/json", response_schema=SCHEMA, temperature=0
     )
     key = _cache_key(mandate, action)
-    for attempt in range(5):                       # ride out quota (429) / overload (503) blips
+    for attempt in range(4):                       # ride out quota (429) / overload (503) blips
         try:
             resp = _client_().models.generate_content(model=MODEL, contents=contents, config=config)
             verdict = json.loads(resp.text)
             _cache_put(key, verdict)
             return {**verdict, "source": "live"}
-        except errors.APIError as e:
-            if e.code not in (429, 500, 503) or attempt == 4:
+        except Exception as e:                       # APIError, or a timeout/connection stall (no .code)
+            code = getattr(e, "code", None)
+            logging.warning("audit attempt %d failed: %s %s", attempt + 1, type(e).__name__, str(e)[:200])
+            if (code is not None and code not in (429, 500, 503)) or attempt == 3:
                 cached = _cache_get(key)               # last good verdict for this exact input (temp 0 => stable)
                 if cached:
                     return {**cached, "source": "cache"}   # surfaced so the eval can't pass on cached answers silently
