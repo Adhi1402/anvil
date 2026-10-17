@@ -91,6 +91,11 @@
   </section>
 
   <section>
+    <h2>Spend stopped</h2>
+    <div class="card" id="impact"><span class="msg">Loading impact…</span></div>
+  </section>
+
+  <section>
     <h2>The authorization</h2>
     <div class="card" id="mandate"><span class="msg">Loading mandate…</span></div>
   </section>
@@ -176,6 +181,21 @@ async function loadMandate() {
 }
 
 /* ---------- scoreboard ---------- */
+function byType(bt) {
+  if (!bt) return "";
+  return `<div style="overflow-x:auto;margin-top:12px"><table><tr><th>Failure type</th><th>Anvil</th><th>Rules-only</th></tr>
+    ${Object.entries(bt).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="${v.anvil === v.total ? "yes" : "no"}">${v.anvil}/${v.total}</td>
+      <td class="${v.baseline === v.total ? "yes" : "no"}">${v.baseline}/${v.total}</td></tr>`).join("")}</table></div>`;
+}
+
+async function loadImpact() {
+  try {
+    const i = await api("/api/impact");
+    $("impact").innerHTML = `<p class="headline">${usd(i.blocked_usd)} of unauthorized spend stopped across ${i.blocked_count} blocked action${i.blocked_count === 1 ? "" : "s"}</p>
+      <div class="small">${usd(i.held_usd)} held for manager consent (${i.held_count}) · ${usd(i.over_cap_usd)} of over-cap exposure caught</div>`;
+  } catch (e) { $("impact").innerHTML = `<span class="msg">Impact unavailable: ${esc(e.message)}</span>`; }
+}
+
 async function loadScore() {
   try {
     const { rows: r, summary: s } = await api("/api/eval");
@@ -184,12 +204,13 @@ async function loadScore() {
     $("score").innerHTML = `
       <p class="headline">Anvil caught ${caughtOfMissed}/${missed.length} the baseline missed · ${s.anvil_false_blocks} false blocks</p>
       <div style="overflow-x:auto"><table>
-        <tr><th>Scenario</th><th>Expected</th><th>Anvil</th><th>Anvil caught</th><th>Rules-only caught</th></tr>
-        ${r.map(x => `<tr><td>${esc(x.name)}</td><td><span class="chip ${esc(x.expect)}">${esc(x.expect)}</span></td>
+        <tr><th>Scenario</th><th>Type</th><th>Expected</th><th>Anvil</th><th>Anvil caught</th><th>Rules-only caught</th></tr>
+        ${r.map(x => `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.drift_type || "")}</td><td><span class="chip ${esc(x.expect)}">${esc(x.expect)}</span></td>
           <td><span class="chip ${esc(x.anvil_verdict)}">${esc(x.anvil_verdict)}</span></td>
           <td class="${x.expect === "MATCH" ? "small" : x.anvil_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.anvil_caught ? "✓" : "✗"}</td>
           <td class="${x.expect === "MATCH" ? "small" : x.baseline_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.baseline_caught ? "✓" : "✗"}</td></tr>`).join("")}
       </table></div>
+      ${byType(s.by_type)}
       <div class="small" style="margin-top:8px">Violations caught — Anvil ${s.anvil_catch_rate}/${s.violations_total} · rules-only ${s.baseline_catch_rate}/${s.violations_total}</div>`;
   } catch (e) { $("score").innerHTML = `<span class="msg">Could not load scoreboard: ${esc(e.message)}</span>`; }
 }
@@ -251,6 +272,7 @@ function render() {
         <span class="meta">${esc(new Date(e.ts).toLocaleString())}</span></div>
       <p class="expl">${esc(e.explanation)}</p>
       ${chain ? `<div class="chain">Delegation: ${esc(chain)} · mandate ${esc(e.mandate_id)}</div>` : ""}
+      ${e.counterfactual ? `<div class="chain">💸 ${esc(e.counterfactual.summary)}</div>` : ""}
       ${e.cart_mandate ? `<div class="chain">🧾 Cart Mandate <span class="mono">${esc(e.cart_mandate.cartId.slice(0, 10))}…</span> signed · total ${usd(e.cart_mandate.total)}</div>` : ""}
       ${e.hash ? `<div class="chain mono">hash ${esc(e.hash.slice(0, 16))}… ← ${esc((e.prev_hash || "").slice(0, 8))}…</div>` : `<div class="chain">(legacy entry, pre hash-chain)</div>`}
     </div>`;
@@ -280,7 +302,7 @@ setTimeout(async () => {
 async function run(path, label) {
   const btns = document.querySelectorAll("button"); btns.forEach(b => b.disabled = true);
   $("runmsg").textContent = `Running ${label}…`;
-  try { await api(path, { method: "POST" }); $("runmsg").textContent = `${label} complete.`; }
+  try { await api(path, { method: "POST" }); $("runmsg").textContent = `${label} complete.`; loadImpact(); }
   catch (e) { $("runmsg").textContent = "Failed: " + e.message; }
   btns.forEach(b => b.disabled = false);
 }
@@ -298,7 +320,7 @@ $("replay").onclick = async () => {
   cards.forEach(x => x.classList.remove("hl")); trail.classList.remove("replaying");
 };
 
-loadMandate(); loadScore(); loadChain();
+loadMandate(); loadScore(); loadChain(); loadImpact();
 </script>
 </body>
 </html>

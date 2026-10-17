@@ -3,11 +3,13 @@ import html
 import json
 import os
 from datetime import datetime, timezone
+from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 from flask import Flask, jsonify, request, redirect
 from agents.run import travel_agent, plan_trip
 from anvil.audit import audit, rules_baseline
 from anvil.guard import book_with_guard
+from anvil.impact import counterfactual, impact_summary
 from data.store import (db, get_mandate, verify_mandate, log_provenance, list_provenance, verify_chain,
                         delegation_for, cart_mandate)
 
@@ -60,6 +62,8 @@ def _log_steps(intent, steps):
     """Log every step with its 3-hop delegation chain; MATCH steps also get a signed Cart Mandate."""
     for st in steps:
         extra = {"intent_signature": intent["signature"]}
+        if st["audit"]["verdict"] in ("DRIFT", "REVIEW"):
+            extra["counterfactual"] = counterfactual(intent["constraints"], st["action"], st["audit"]["verdict"])
         if st["audit"]["verdict"] == "MATCH":
             extra["cart_mandate"] = cart_mandate(intent, st["action"])
         st["provenance_id"] = log_provenance(intent["mandateId"], st["action"], st["audit"],
@@ -120,16 +124,23 @@ def reject(entry_id):
 
 @app.route("/api/eval")
 def api_eval():
-    """Scoreboard. Cached in Firestore (5 Gemini calls per run); ?refresh=1 recomputes."""
+    """Scoreboard. Cached in Firestore (one Gemini call per scenario per repeat); ?refresh=1 recomputes, &repeats=N measures stability."""
     from anvil.eval import run_eval
     ref = db().collection("meta").document("eval_latest")
     if not request.args.get("refresh"):
         cached = ref.get()
         if cached.exists:
             return jsonify(cached.to_dict()["result"])
-    result = run_eval()
+    result = run_eval(repeats=max(1, min(int(request.args.get("repeats", 1)), 5)))
     ref.set({"result": result, "ts": datetime.now(timezone.utc).isoformat()})
     return jsonify(result)
+
+
+@app.route("/api/impact")
+def api_impact():
+    """Prevented-spend rollup from the counterfactual receipts in the provenance log."""
+    q = db().collection("provenance").order_by("ts", direction=firestore.Query.DESCENDING).limit(500)
+    return jsonify(impact_summary([d.to_dict() for d in q.stream()]))
 
 
 @app.route("/api/mandate")

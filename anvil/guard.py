@@ -1,16 +1,22 @@
-"""Guard: propose -> audit -> (if DRIFT) feed the reason back -> re-plan -> audit again."""
+"""Guard: propose -> audit -> (if DRIFT) feed the violations back -> agent re-plans -> audit again.
+The re-planned action is audited exactly like the original, so the loop can never bypass enforcement."""
 from agents.run import replan
 from anvil.audit import audit
+
+MAX_CORRECTIONS = 2
 
 
 def book_with_guard(mandate, action):
     steps = []
     result = audit(mandate, action)
     steps.append({"action": action, "audit": result})
-    if result["verdict"] == "DRIFT" and action.get("type") == "book_flight":   # self-correction is flight-only
+    attempts = 0
+    while result["verdict"] == "DRIFT" and attempts < MAX_CORRECTIONS:
+        attempts += 1
         reason = "; ".join(result["violations"]) or result["explanation"]
-        fixed = replan(mandate, reason=reason)          # agent corrects itself
-        if fixed:
-            result2 = audit(mandate, fixed)
-            steps.append({"action": fixed, "audit": result2})
+        action = replan(mandate, action, reason)         # agent corrects itself using the stated reasons
+        if not action:
+            break
+        result = audit(mandate, action)
+        steps.append({"action": action, "audit": result, "correction_attempt": attempts})
     return steps

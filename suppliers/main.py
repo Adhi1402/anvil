@@ -12,12 +12,18 @@ FLIGHTS = [
     {"vendor": "Air India", "price": 480, "class": "economy", "refundable": True, "destination": "Mumbai"},
     {"vendor": "Air India", "price": 520, "class": "economy", "refundable": True, "destination": "Mumbai"},
     {"vendor": "IndiGo", "price": 430, "class": "economy", "refundable": False, "destination": "Mumbai"},
+    {"vendor": "IndiGo", "price": 495, "class": "economy", "refundable": True, "destination": "Mumbai"},
+    {"vendor": "Emirates", "price": 590, "class": "business", "refundable": True, "destination": "Mumbai"},
+    {"vendor": "Vistara", "price": 540, "class": "economy", "refundable": True, "destination": "Mumbai"},
 ]
 HOTELS = [
     {"vendor": "Taj", "price": 280, "refundable": True, "destination": "Mumbai"},
     {"vendor": "OYO", "price": 180, "refundable": False, "destination": "Mumbai"},
+    {"vendor": "Lemon Tree", "price": 140, "refundable": False, "destination": "Mumbai"},
+    {"vendor": "Marriott", "price": 295, "refundable": True, "destination": "Mumbai"},
 ]
-TRANSPORT = [{"vendor": "Uber", "price": 40, "destination": "Mumbai"}]
+TRANSPORT = [{"vendor": "Uber", "price": 40, "destination": "Mumbai"},
+             {"vendor": "Ola Prime", "price": 85, "destination": "Mumbai"}]
 
 
 def _search(inventory, data):

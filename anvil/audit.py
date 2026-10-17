@@ -89,21 +89,28 @@ def audit(mandate, action):
             resp = _client_().models.generate_content(model=MODEL, contents=contents, config=config)
             verdict = json.loads(resp.text)
             _cache_put(key, verdict)
-            return verdict
+            return {**verdict, "source": "live"}
         except errors.APIError as e:
             if e.code not in (429, 500, 503) or attempt == 4:
                 cached = _cache_get(key)               # last good verdict for this exact input (temp 0 => stable)
                 if cached:
-                    return cached
+                    return {**cached, "source": "cache"}   # surfaced so the eval can't pass on cached answers silently
                 raise
             time.sleep(2 ** attempt)
 
 
+_CAP_FIELD = {"book_flight": "max_flight_price_usd", "book_hotel": "max_hotel_per_night_usd",
+              "book_transport": "max_transport_usd"}
+
+
 def rules_baseline(mandate, action):
-    """Dumb baseline: budget check + supplier allowlist only. True = pass."""
+    """Fair rules-only baseline: supplier allowlist + destination match + the price cap for the action type.
+    No notion of class, refundability, circumvention or extra charges. True = pass."""
     if action.get("supplier") not in mandate.get("allowed_suppliers", []):
         return False
-    cap = mandate.get("max_flight_price_usd")
+    if action.get("destination") not in (None, mandate.get("destination")):
+        return False
+    cap = mandate.get(_CAP_FIELD.get(action.get("type"), ""))
     return cap is None or action.get("price", 0) <= cap
 
 
