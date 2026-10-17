@@ -123,16 +123,16 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, query, orderBy, limit, onSnapshot }
+import { initializeFirestore, collection, query, orderBy, limit, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const BASE = "https://anvil-733520529727.us-central1.run.app";
-const db = getFirestore(initializeApp({
+const db = initializeFirestore(initializeApp({
   apiKey: "AIzaSyCnda1Y64OGWHXepXDwD6PhiGzwNuj1iMs",
   authDomain: "dazzling-lodge-511607-m0.firebaseapp.com",
   projectId: "dazzling-lodge-511607-m0",
   appId: "1:733520529727:web:ee7cd8da0c036d62896b8a"
-}));
+}), { experimentalAutoDetectLongPolling: true });      // works on networks that block streaming
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -257,11 +257,24 @@ function render() {
   }).join("") || '<div class="card"><span class="msg">No entries yet — run a scenario above.</span></div>';
 }
 
+let live = false;
 onSnapshot(query(collection(db, "provenance"), orderBy("ts", "desc"), limit(40)), snap => {
+  live = true;
   rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   $("dot").classList.add("on"); $("status").textContent = `connected · ${snap.size} entries`;
-  render(); loadChain();
+  try { render(); } catch (e) { console.error(e); $("status").textContent = "render error: " + e.message; }
+  loadChain();
 }, err => { $("status").textContent = "disconnected: " + err.message; });
+
+// If the live stream hasn't connected shortly, show the log from the REST API so the page is never empty.
+setTimeout(async () => {
+  if (live) return;
+  try {
+    rows = await api("/api/provenance");
+    $("dot").classList.add("on"); $("status").textContent = `connected (REST) · ${rows.length} entries`;
+    render();
+  } catch (e) { $("status").textContent = "offline: " + e.message; }
+}, 6000);
 
 /* ---------- actions ---------- */
 async function run(path, label) {
