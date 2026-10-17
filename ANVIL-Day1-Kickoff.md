@@ -226,6 +226,8 @@ That's the skeleton. **Days 2–5 (in the project brief) add the muscle:** the r
 
 ## PART 4 — What we actually built (Day 1 as-built reference)
 
+> **Snapshot of the end of Day 1.** The system has grown since (A2A Agent Cards, hotel/transport agents, signed Intent/Cart Mandates, self-correction, hash-chained log, new dashboard). For the current architecture and run instructions see `README.md`.
+
 **Live URLs**
 - Dashboard (Firebase Hosting): https://dazzling-lodge-511607-m0.web.app
 - Pipeline service (Cloud Run): https://anvil-733520529727.us-central1.run.app (`/run` triggers the chain, `/api/provenance` returns the log)

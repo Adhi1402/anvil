@@ -1,0 +1,197 @@
+﻿<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Anvil — pitch deck</title>
+<style>
+  @page { size: 1280px 720px; margin: 0 }
+  :root{--primary:#2E57D6;--gold:#B06A08;--green:#1C7A4D;--red:#B23A3A;--ink:#161A22;--muted:#5B6472;--line:#E2E5EA;--bg:#FFFFFF;--tint:#F3F5FB}
+  *{box-sizing:border-box} html,body{margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .slide{width:1280px;height:720px;padding:56px 72px;position:relative;overflow:hidden;page-break-after:always;break-after:page;background:var(--bg)}
+  .slide:last-child{page-break-after:auto;break-after:auto}
+  .num{position:absolute;right:40px;bottom:26px;font-size:15px;color:var(--muted)}
+  .brand{position:absolute;left:72px;bottom:26px;font-size:15px;letter-spacing:.18em;font-weight:800;color:var(--primary)}
+  h1{font-size:64px;margin:0;line-height:1.05;letter-spacing:-.02em}
+  h2{font-size:42px;margin:0 0 26px;line-height:1.15;letter-spacing:-.01em}
+  .kicker{font-size:17px;letter-spacing:.14em;text-transform:uppercase;color:var(--primary);font-weight:700;margin-bottom:14px}
+  p,li{font-size:25px;line-height:1.45;margin:0 0 14px} ul{margin:0;padding-left:28px}
+  .muted{color:var(--muted)}
+  .dark{background:#0E1117;color:#E8ECF2} .dark .muted{color:#98A2B3} .dark .kicker,.dark .brand{color:#7C9BF7}
+  .cols{display:grid;gap:28px} .c2{grid-template-columns:1fr 1fr} .c3{grid-template-columns:repeat(3,1fr)}
+  .box{border:2px solid var(--line);border-radius:14px;padding:18px 22px;background:#fff}
+  .box h3{margin:0 0 6px;font-size:24px} .box p{font-size:20px;margin:0}
+  .chip{display:inline-block;font-weight:700;font-size:20px;padding:3px 14px;border-radius:999px}
+  .MATCH{color:var(--green);background:#E3F3EA}.REVIEW{color:var(--gold);background:#F8EBD6}.DRIFT{color:var(--red);background:#F6E1E1}
+  .ph{background:#FFF3BF;border:2px dashed #C99700;color:#6B5200;border-radius:8px;padding:2px 10px;font-weight:600}
+  table{border-collapse:collapse;width:100%;font-size:19px}
+  th,td{padding:4px 10px;text-align:left;border-bottom:2px solid var(--line)} th{font-size:17px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase}
+  .yes{color:var(--green);font-weight:800}.no{color:var(--red);font-weight:800}
+  .flow{display:flex;align-items:stretch;gap:10px;margin-top:8px}
+  .step{flex:1;border:2px solid var(--line);border-radius:12px;padding:14px;background:var(--tint)}
+  .step b{display:block;font-size:19px;color:var(--primary);margin-bottom:4px} .step span{font-size:17px;line-height:1.35;color:var(--muted)}
+  .arr{align-self:center;font-size:30px;color:var(--muted)}
+  .crop{overflow:hidden;border-radius:12px;border:2px solid var(--line);background:#0E1117}
+  .crop img{display:block;width:100%}
+  .big{font-size:84px;font-weight:800;letter-spacing:-.02em;line-height:1}
+  .stat{border:2px solid var(--line);border-radius:14px;padding:22px;text-align:center} .stat small{display:block;font-size:19px;color:var(--muted);margin-top:8px}
+</style></head>
+<body>
+
+<!-- 1 Title -->
+<section class="slide dark" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kicker">Future of Work · Google AI Builder Cup</div>
+  <h1 style="font-size:132px;letter-spacing:.12em;color:#7C9BF7">ANVIL</h1>
+  <p style="font-size:38px;margin-top:18px">Governance for autonomous spending agents.</p>
+  <p class="muted" style="font-size:24px">A human signs what an agent may spend. Anvil checks every action against it, blocks drift, and makes the agent fix itself.</p>
+  <div class="num">1</div>
+</section>
+
+<!-- 2 Problem -->
+<section class="slide">
+  <div class="kicker">The problem</div>
+  <h2>Agents already spend money. Nothing checks they stayed inside what a human approved.</h2>
+  <div class="cols c2" style="margin-top:34px">
+    <div>
+      <ul>
+        <li>Travel &amp; expense agents book flights and hotels on their own today.</li>
+        <li>Rules engines only see numbers: a price under the cap passes, even when the <b>cabin class</b>, <b>refundability</b> or <b>intent</b> is wrong.</li>
+        <li>When something goes wrong, there is no tamper-evident record of who authorized what.</li>
+      </ul>
+    </div>
+    <div class="box" style="align-self:start">
+      <h3>Example: "within budget" but out of policy</h3>
+      <p>Agent books <b>business class</b> on a non-preferred airline, $590 against a $600 cap. Every budget rule passes. The manager never authorized it.</p>
+      <p style="margin-top:14px"><span class="ph">[ADD: one sourced statistic from the project brief on agentic spend / T&amp;E leakage, with source]</span></p>
+    </div>
+  </div>
+  <div class="brand">ANVIL</div><div class="num">2</div>
+</section>
+
+<!-- 3 What Anvil is -->
+<section class="slide">
+  <div class="kicker">What Anvil is</div>
+  <h2>A signed mandate in, a verdict and an audit trail out.</h2>
+  <div class="flow">
+    <div class="step"><b>1 · Signed mandate</b><span>Manager's limits as an AP2 Intent Mandate (HMAC-signed, verified before every action)</span></div><div class="arr">→</div>
+    <div class="step"><b>2 · Agents over A2A</b><span>Flight, hotel, transport agents discover suppliers via Agent Cards, JSON-RPC</span></div><div class="arr">→</div>
+    <div class="step"><b>3 · Anvil auditor</b><span>Gemini judges the action against the intent of the mandate; structured JSON</span></div><div class="arr">→</div>
+    <div class="step"><b>4 · Decide</b><span><span class="chip MATCH" style="font-size:15px">MATCH</span> allow + Cart Mandate<br><span class="chip REVIEW" style="font-size:15px">REVIEW</span> one-tap re-consent<br><span class="chip DRIFT" style="font-size:15px">DRIFT</span> block + explain</span></div><div class="arr">→</div>
+    <div class="step"><b>5 · Provenance</b><span>Hash-chained log with delegation chain, live on the dashboard</span></div>
+  </div>
+  <p class="muted" style="margin-top:34px;font-size:22px">Runs on Cloud Run (orchestrator + supplier agents), Gemini on Vertex AI, Firestore, Firebase Hosting.</p>
+  <div class="brand">ANVIL</div><div class="num">3</div>
+</section>
+
+<!-- 4 The twist -->
+<section class="slide">
+  <div class="kicker">The twist</div>
+  <h2>Anvil doesn't just say no. The agent corrects itself.</h2>
+  <div class="cols" style="grid-template-columns:1fr 90px 1fr;align-items:center;margin-top:24px">
+    <div class="box" style="border-color:var(--red)">
+      <span class="chip DRIFT">BLOCKED</span>
+      <h3 style="margin-top:12px;font-size:30px">Emirates · business · $590</h3>
+      <p>"Flight class 'business' does not match mandated 'economy' class."</p>
+    </div>
+    <div style="font-size:64px;text-align:center;color:var(--muted)">→</div>
+    <div class="box" style="border-color:var(--green)">
+      <span class="chip MATCH">SELF-CORRECTED · MATCH</span>
+      <h3 style="margin-top:12px;font-size:30px">Air India · economy · $480</h3>
+      <p>Re-planned within policy: preferred carrier, economy, refundable, under cap.</p>
+    </div>
+  </div>
+  <ul style="margin-top:30px;font-size:22px"><li>Intent-drift reasoning: cabin class, refundability, and a booking <b>split into two charges to dodge an approval cap</b>.</li><li>Borderline cases are <span class="chip REVIEW" style="font-size:18px">REVIEW</span>, not blocks: escalated for one-tap manager approval.</li></ul>
+  <div class="brand">ANVIL</div><div class="num">4</div>
+</section>
+
+<!-- 5 Demo screenshots -->
+<section class="slide">
+  <div class="kicker">Live demo</div>
+  <h2 style="margin-bottom:18px">One mandate. Three agents. One trail.</h2>
+  <div class="cols" style="grid-template-columns:1.1fr 1fr;align-items:start">
+    <div class="crop" style="height:420px"><img src="../img/dashboard.png" style="margin-top:-100px"></div>
+    <div class="crop" style="height:420px"><img src="../img/dashboard.png" style="margin-top:-535px;"></div>
+  </div>
+  <p class="muted" style="font-size:17px;margin-top:10px">Live on Google Cloud. Left: signed mandate, trip board, drift → self-correction. Right: hash-chained trail with delegation and Cart Mandates.</p>
+  <div class="brand">ANVIL</div><div class="num">5</div>
+</section>
+
+<!-- 6 Scoreboard -->
+<section class="slide">
+  <div class="kicker">The proof</div>
+  <h2 style="margin-bottom:14px">Measured, not asserted: same actions, two systems.</h2>
+  <div class="cols" style="grid-template-columns:1.7fr 1fr;gap:36px">
+    <table>
+      <tr><th>Scenario</th><th>Expected</th><th>Anvil</th><th>Rules-only caught</th></tr>
+      <tr><td>Clean economy booking</td><td><span class="chip MATCH" style="font-size:16px">MATCH</span></td><td><span class="chip MATCH" style="font-size:16px">MATCH</span></td><td class="muted">(legit)</td></tr>
+      <tr><td>Over-cap fare</td><td><span class="chip REVIEW" style="font-size:16px">REVIEW</span></td><td><span class="chip REVIEW" style="font-size:16px">REVIEW</span></td><td class="yes">✓</td></tr>
+      <tr><td>Non-refundable fare</td><td><span class="chip REVIEW" style="font-size:16px">REVIEW</span></td><td><span class="chip REVIEW" style="font-size:16px">REVIEW</span></td><td class="no">✗</td></tr>
+      <tr><td>Business-class upgrade</td><td><span class="chip DRIFT" style="font-size:16px">DRIFT</span></td><td><span class="chip DRIFT" style="font-size:16px">DRIFT</span></td><td class="no">✗</td></tr>
+      <tr><td>Split charge to dodge cap</td><td><span class="chip DRIFT" style="font-size:16px">DRIFT</span></td><td><span class="chip DRIFT" style="font-size:16px">DRIFT</span></td><td class="no">✗</td></tr>
+    </table>
+    <div style="display:grid;gap:18px;align-content:start">
+      <div class="stat" style="padding:14px"><div class="big" style="color:var(--green)">4/4</div><small>violations caught by Anvil</small></div>
+      <div class="stat" style="padding:14px"><div class="big" style="color:var(--red)">1/4</div><small>caught by a rules-only baseline</small></div>
+      <div class="stat" style="padding:14px"><div class="big">0</div><small>false blocks on legitimate actions</small></div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:19px;margin-top:10px">Identical verdicts across repeated runs (temperature 0). Reproduce: <code>python -m anvil.eval</code> or <code>/api/eval</code>.</p>
+  <div class="brand">ANVIL</div><div class="num">6</div>
+</section>
+
+<!-- 7 Google stack -->
+<section class="slide">
+  <div class="kicker">Google stack</div>
+  <h2>Built end to end on Google's agent stack.</h2>
+  <div class="cols c3" style="margin-top:10px">
+    <div class="box"><h3>Gemini · Vertex AI</h3><p>The drift auditor: structured JSON verdicts at temperature 0, with retries and a cached-verdict fallback.</p></div>
+    <div class="box"><h3>A2A</h3><p>Agent Cards + discovery; Message/Task over JSON-RPC between buyer and supplier agents.</p></div>
+    <div class="box"><h3>AP2</h3><p>Signed Intent Mandate (human authorization) and Cart Mandate (per-purchase), verified before every action.</p></div>
+    <div class="box"><h3>Cloud Run</h3><p>Two services: orchestrator + guard + API, and the A2A supplier agents.</p></div>
+    <div class="box"><h3>Firestore</h3><p>Mandates and the hash-chained, tamper-evident provenance log.</p></div>
+    <div class="box"><h3>Firebase Hosting</h3><p>Live dashboard with a real-time Firestore listener.</p></div>
+  </div>
+  <p class="muted" style="font-size:19px;margin-top:20px">Hand-rolled, faithful to the A2A / AP2 core objects (not the official SDKs; HMAC signatures, not Verifiable Credentials).</p>
+  <div class="brand">ANVIL</div><div class="num">7</div>
+</section>
+
+<!-- 8 Broadens -->
+<section class="slide">
+  <div class="kicker">How it broadens</div>
+  <h2>Beachhead: travel &amp; expense. Destination: the control plane for agent spending.</h2>
+  <div class="cols c3" style="margin-top:20px">
+    <div class="box" style="border-color:var(--primary)"><h3>Today · T&amp;E</h3><p>Flights, hotels, ground transport governed by one signed mandate.</p></div>
+    <div class="box"><h3>Next · Cloud &amp; SaaS</h3><p>Agents that provision infrastructure and buy seats, checked against the same kind of mandate.</p></div>
+    <div class="box"><h3>Then · Procurement</h3><p>Vendor selection and purchase orders, with delegation chains and approvals built in.</p></div>
+  </div>
+  <p style="margin-top:34px">Same engine, same three verdicts, same tamper-evident trail. Only the mandate and the supplier agents change.</p>
+  <div class="brand">ANVIL</div><div class="num">8</div>
+</section>
+
+<!-- 9 Why now / impact -->
+<section class="slide">
+  <div class="kicker">Why now · impact</div>
+  <h2>Agents are live today, and spend leaks without a guard.</h2>
+  <div class="cols c3" style="margin-top:20px">
+    <div class="stat"><div class="big" style="font-size:44px"><span class="ph">[ADD]</span></div><small>Agentic travel/spend already in production (name the real products + source from the brief)</small></div>
+    <div class="stat"><div class="big" style="font-size:44px"><span class="ph">[ADD]</span></div><small>Size of T&amp;E leakage / out-of-policy spend (figure + source from the brief)</small></div>
+    <div class="stat"><div class="big" style="font-size:44px"><span class="ph">[ADD]</span></div><small>Time saved by one-tap re-consent vs manual review (only if measured)</small></div>
+  </div>
+  <p style="margin-top:34px">Anvil gives finance and compliance teams what they will need before they let agents spend: proof of authorization, a block on drift, and a trail an auditor can verify.</p>
+  <div class="brand">ANVIL</div><div class="num">9</div>
+</section>
+
+<!-- 10 Team + ask -->
+<section class="slide dark" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kicker">Team · ask</div>
+  <h2 style="font-size:54px">Let agents spend, with a human's limits intact.</h2>
+  <div class="cols c2" style="margin-top:20px">
+    <div><p><b>Team</b></p><p class="muted"><span class="ph" style="color:#FFE08A;background:#3A2F00;border-color:#C99700">[ADD: team name, members and roles]</span></p></div>
+    <div><p><b>Ask</b></p><p class="muted"><span class="ph" style="color:#FFE08A;background:#3A2F00;border-color:#C99700">[ADD: what you want from the judges / next step]</span></p></div>
+  </div>
+  <p style="margin-top:30px">Live: https://dazzling-lodge-511607-m0.web.app<br>Code: https://github.com/Adhi1402/anvil</p>
+  <div class="num">10</div>
+</section>
+
+</body></html>
+
+
+
+
