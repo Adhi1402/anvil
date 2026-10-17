@@ -3,89 +3,289 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Anvil Dashboard</title>
+<title>Anvil — governance for autonomous spending agents</title>
+<meta name="description" content="Anvil audits what AI agents spend against what a human signed.">
 <style>
-  body{font-family:system-ui,sans-serif;max-width:860px;margin:2rem auto;padding:0 1rem;color:#1f2328}
-  h1{margin-bottom:.2rem} .sub{color:#656d76;margin-top:0}
-  button{padding:.5rem 1rem;font-size:1rem;cursor:pointer}
-  .e{border:1px solid #d0d7de;border-radius:8px;padding:.8rem;margin:.7rem 0}
-  .MATCH{border-left:6px solid #1a7f37}.REVIEW{border-left:6px solid #bf8700}.DRIFT{border-left:6px solid #cf222e}
-  .APPROVED{border-left:6px solid #1a7f37}.REJECTED{border-left:6px solid #cf222e}
-  .needs{background:#fff8c5;color:#1f2328;border-radius:6px;padding:.5rem .7rem;margin-top:.4rem}
-  .needs button{margin-right:.4rem}
-  .scen{margin:.6rem 0} .scen button{margin:.15rem .25rem .15rem 0;font-size:.9rem}
-  .tag{font-weight:700} pre{white-space:pre-wrap;margin:.3rem 0;font-size:.9rem}
-  @media (prefers-color-scheme:dark){body{background:#0d1117;color:#e6edf3}.e{border-color:#30363d}}
+  :root{
+    --primary:#2E57D6; --gold:#B06A08; --green:#1C7A4D; --red:#B23A3A;
+    --bg:#F6F7F9; --surface:#FFFFFF; --line:#E2E5EA; --text:#161A22; --muted:#5B6472;
+    --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --primary:#7C9BF7; --gold:#E0A04A; --green:#4CC38A; --red:#E57A7A;
+      --bg:#0E1117; --surface:#161B24; --line:#2A313D; --text:#E8ECF2; --muted:#98A2B3;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.45}
+  .wrap{max-width:960px;margin:0 auto;padding:0 16px 48px}
+  header{padding:28px 0 8px;display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}
+  .wordmark{font-size:28px;font-weight:800;letter-spacing:.14em;color:var(--primary)}
+  .tagline{color:var(--muted);flex:1;min-width:220px}
+  .status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  .dot.on{background:var(--green)}
+  section{margin-top:24px}
+  h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:700}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .row{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
+  button{font:inherit;font-size:14px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+  button:hover{border-color:var(--primary)}
+  button.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+  button:disabled{opacity:.55;cursor:wait}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .msg{font-size:13px;color:var(--muted)}
+  .chip{display:inline-block;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;letter-spacing:.03em}
+  .MATCH,.APPROVED{--c:var(--green)} .REVIEW{--c:var(--gold)} .DRIFT,.REJECTED{--c:var(--red)}
+  .chip{color:var(--c,var(--muted));background:color-mix(in srgb,var(--c,var(--muted)) 14%,transparent)}
+  .badge{font-size:13px;font-weight:600;padding:4px 10px;border-radius:8px}
+  .ok{color:var(--green);background:color-mix(in srgb,var(--green) 13%,transparent)}
+  .bad{color:var(--red);background:color-mix(in srgb,var(--red) 13%,transparent)}
+  .grid{display:grid;gap:12px}
+  .terms{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-top:12px}
+  .term span{display:block;font-size:12px;color:var(--muted)} .term b{font-weight:600}
+  .board{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .kind{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .big{font-size:18px;font-weight:700;margin:4px 0}
+  .small{font-size:13px;color:var(--muted)}
+  .needs{margin-top:10px;padding:10px;border-radius:8px;background:color-mix(in srgb,var(--gold) 13%,transparent);font-size:13px}
+  .needs button{margin:8px 6px 0 0}
+  .strip{display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:stretch}
+  .strip .card{border-width:2px}
+  .strip .blocked{border-color:var(--red)} .strip .fixed{border-color:var(--green)}
+  .arrow{align-self:center;font-size:28px;color:var(--muted)}
+  .reason{margin-top:8px;font-size:14px}
+  @media (max-width:640px){.strip{grid-template-columns:1fr}.arrow{transform:rotate(90deg);justify-self:center}}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;color:var(--muted);font-weight:600}
+  .yes{color:var(--green);font-weight:700} .no{color:var(--red);font-weight:700}
+  .headline{font-size:16px;font-weight:700;margin:0 0 10px}
+  .entry{border-left:4px solid var(--c,var(--line));padding:10px 12px;margin:8px 0;background:var(--surface);border-radius:0 10px 10px 0;border-top:1px solid var(--line);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transition:box-shadow .2s,opacity .2s}
+  .entry.hl{box-shadow:0 0 0 2px var(--primary)} .replaying .entry:not(.hl){opacity:.35}
+  .entry .meta{font-size:12px;color:var(--muted)}
+  .chain{font-size:12px;color:var(--muted);margin-top:4px;word-break:break-word}
+  .mono{font-family:var(--mono);font-size:12px}
+  .expl{margin:6px 0 0;font-size:14px}
+  footer{margin-top:36px;text-align:center;color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
-<h1>Anvil provenance log</h1>
-<p class="sub">Live from Firestore &middot; <span id="count">0</span> entries</p>
-<button id="run">Run agent now</button> <span id="status"></span>
-<div class="scen">Scenarios:
-  <button data-s="clean">Clean booking</button>
-  <button data-s="over-cap">Over-cap (REVIEW)</button>
-  <button data-s="non-refundable">Non-refundable (REVIEW)</button>
-  <button data-s="business">Business upgrade (DRIFT)</button>
-  <button data-s="fare">Fare split (DRIFT)</button>
+<div class="wrap">
+  <header>
+    <div class="wordmark">ANVIL</div>
+    <div class="tagline">Governance for autonomous spending agents</div>
+    <div class="status"><span class="dot" id="dot"></span><span id="status">connecting…</span></div>
+  </header>
+
+  <section>
+    <div class="card row">
+      <div class="controls">
+        <button class="primary" data-run="trip">Clean trip</button>
+        <button data-run="over-cap">Borderline (REVIEW)</button>
+        <button data-run="business">Drift → self-correct</button>
+      </div>
+      <div class="msg" id="runmsg">Fires a scenario on the deployed backend.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The authorization</h2>
+    <div class="card" id="mandate"><span class="msg">Loading mandate…</span></div>
+  </section>
+
+  <section>
+    <h2>Trip board</h2>
+    <div class="grid board" id="board"></div>
+  </section>
+
+  <section id="stripsec" hidden>
+    <h2>Drift → self-correction</h2>
+    <div class="strip" id="strip"></div>
+  </section>
+
+  <section>
+    <h2>Scoreboard — Anvil vs rules-only baseline</h2>
+    <div class="card" id="score"><span class="msg">Loading scoreboard…</span></div>
+  </section>
+
+  <section>
+    <div class="row" style="margin-bottom:10px">
+      <h2 style="margin:0">Provenance trail</h2>
+      <div class="controls"><span class="badge" id="chainbadge">checking chain…</span><button id="replay">▶ Replay</button></div>
+    </div>
+    <div id="trail"></div>
+  </section>
+
+  <footer>Gemini · A2A · AP2 · Cloud Run · Firebase</footer>
 </div>
-<div id="list"></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore, collection, query, orderBy, limit, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-const app = initializeApp({
+const BASE = "https://anvil-733520529727.us-central1.run.app";
+const db = getFirestore(initializeApp({
   apiKey: "AIzaSyCnda1Y64OGWHXepXDwD6PhiGzwNuj1iMs",
   authDomain: "dazzling-lodge-511607-m0.firebaseapp.com",
   projectId: "dazzling-lodge-511607-m0",
   appId: "1:733520529727:web:ee7cd8da0c036d62896b8a"
-});
-const db = getFirestore(app);
-const AGENT_URL = "https://anvil-733520529727.us-central1.run.app/run";
+}));
 
+const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const usd = n => "$" + Number(n).toLocaleString();
+const KINDS = { book_flight: "Flight", book_hotel: "Hotel", book_transport: "Transport" };
+let rows = [];
 
-const BASE = "https://anvil-733520529727.us-central1.run.app";
-
-onSnapshot(query(collection(db, "provenance"), orderBy("ts", "desc"), limit(25)), snap => {
-  document.getElementById("count").textContent = snap.size;
-  const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const resolved = {};                       // REVIEW id -> APPROVED | REJECTED
-  rows.forEach(e => { if (e.action && e.action.re_consent_for) resolved[e.action.re_consent_for] = e.verdict; });
-  document.getElementById("list").innerHTML = rows.map(e => {
-    let extra = "";
-    if (e.verdict === "REVIEW") {
-      extra = resolved[e.id]
-        ? `<div class="needs">Manager ${esc(resolved[e.id].toLowerCase())} this.</div>`
-        : `<div class="needs"><b>Needs manager approval</b> &mdash; not forbidden, but beyond what was authorized.<br>
-             <button data-act="approve" data-id="${esc(e.id)}">Approve</button>
-             <button data-act="reject" data-id="${esc(e.id)}">Reject</button></div>`;
-    }
-    const fix = e.action && e.action.replan_reason ? `<pre>Self-corrected after block: ${esc(e.action.replan_reason)}</pre>` : "";
-    return `<div class="e ${esc(e.verdict)}"><span class="tag">${esc(e.verdict)}</span> (${esc(e.severity)})
-      &middot; ${esc(e.ts)} &middot; mandate ${esc(e.mandate_id)}
-      <pre>Action: ${esc(JSON.stringify(e.action))}</pre>
-      <pre>${esc(e.explanation)}</pre>${fix}${extra}</div>`;
-  }).join("") || "<p>No entries yet.</p>";
-}, err => { document.getElementById("list").textContent = "Error: " + err.message; });
-
-async function call(path, method) {
-  const s = document.getElementById("status"); s.textContent = "Working...";
-  try { await fetch(BASE + path, { method, mode: "no-cors" }); s.textContent = "Done."; }
-  catch (e) { s.textContent = "Failed: " + e.message; }
+async function api(path, opts) {
+  const r = await fetch(BASE + path, opts);
+  if (!r.ok) throw new Error(path + " → " + r.status);
+  return r.json();
 }
-document.querySelector(".scen").onclick = ev => { const k = ev.target.dataset.s; if (k) call("/run/" + k, "POST"); };
-document.getElementById("list").onclick = ev => {
-  const { act, id } = ev.target.dataset; if (act) call("/" + act + "/" + id, "POST");
+
+/* ---------- mandate ---------- */
+async function loadMandate() {
+  try {
+    const { mandate: m, signature_valid } = await api("/api/mandate");
+    const c = m.constraints;
+    const term = (k, v) => `<div class="term"><span>${k}</span><b>${esc(v)}</b></div>`;
+    $("mandate").innerHTML = `
+      <div class="row">
+        <div><b>${esc(c.traveler)}</b> may travel to <b>${esc(c.destination)}</b>
+          <div class="small">Authorized by ${esc(m.user)} · ${esc(m.type)} ${esc(m.mandateId)}</div></div>
+        <div class="controls">
+          <span class="badge ${signature_valid ? "ok" : "bad"}" id="sig">${signature_valid ? "✓ Signature verified" : "✗ Signature invalid"}</span>
+          <button id="tamper">Test a tampered copy</button>
+        </div>
+      </div>
+      <div class="grid terms">
+        ${term("Class", c.flight_class)}${term("Flight cap", usd(c.max_flight_price_usd))}
+        ${term("Hotel cap / night", usd(c.max_hotel_per_night_usd))}${term("Transport cap", usd(c.max_transport_usd))}
+        ${term("Preferred airlines", c.preferred_airlines.join(", "))}
+        ${term("Refundable required", c.refundable_required ? "Yes" : "No")}${term("Book by", c.book_by)}
+      </div>
+      <div class="msg" id="tamperres" style="margin-top:10px"></div>`;
+    $("tamper").onclick = async () => {
+      const t = await api("/api/mandate/tampered");
+      $("tamperres").innerHTML = `Forged copy (${esc(t.changed)}): <span class="badge ${t.signature_valid ? "ok" : "bad"}">${t.signature_valid ? "accepted" : "✗ rejected — signature does not match"}</span>`;
+    };
+  } catch (e) { $("mandate").innerHTML = `<span class="msg">Could not load mandate: ${esc(e.message)}</span>`; }
+}
+
+/* ---------- scoreboard ---------- */
+async function loadScore() {
+  try {
+    const { rows: r, summary: s } = await api("/api/eval");
+    const missed = r.filter(x => x.expect !== "MATCH" && !x.baseline_caught);
+    const caughtOfMissed = missed.filter(x => x.anvil_caught).length;
+    $("score").innerHTML = `
+      <p class="headline">Anvil caught ${caughtOfMissed}/${missed.length} the baseline missed · ${s.anvil_false_blocks} false blocks</p>
+      <div style="overflow-x:auto"><table>
+        <tr><th>Scenario</th><th>Expected</th><th>Anvil</th><th>Anvil caught</th><th>Rules-only caught</th></tr>
+        ${r.map(x => `<tr><td>${esc(x.name)}</td><td><span class="chip ${esc(x.expect)}">${esc(x.expect)}</span></td>
+          <td><span class="chip ${esc(x.anvil_verdict)}">${esc(x.anvil_verdict)}</span></td>
+          <td class="${x.expect === "MATCH" ? "small" : x.anvil_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.anvil_caught ? "✓" : "✗"}</td>
+          <td class="${x.expect === "MATCH" ? "small" : x.baseline_caught ? "yes" : "no"}">${x.expect === "MATCH" ? "(legit)" : x.baseline_caught ? "✓" : "✗"}</td></tr>`).join("")}
+      </table></div>
+      <div class="small" style="margin-top:8px">Violations caught — Anvil ${s.anvil_catch_rate}/${s.violations_total} · rules-only ${s.baseline_catch_rate}/${s.violations_total}</div>`;
+  } catch (e) { $("score").innerHTML = `<span class="msg">Could not load scoreboard: ${esc(e.message)}</span>`; }
+}
+
+async function loadChain() {
+  try {
+    const v = await api("/api/verify");
+    $("chainbadge").className = "badge " + (v.chain_ok ? "ok" : "bad");
+    $("chainbadge").textContent = v.chain_ok ? "🔗 chain verified" : "✗ chain broken at " + v.broken_at;
+  } catch { $("chainbadge").textContent = "chain status unavailable"; }
+}
+
+/* ---------- live provenance ---------- */
+function render() {
+  const resolved = {};
+  rows.forEach(e => { if (e.action?.re_consent_for) resolved[e.action.re_consent_for] = e.verdict; });
+  const primary = rows.filter(e => !e.action?.re_consent_for);
+
+  // trip board: latest entry per kind
+  $("board").innerHTML = Object.entries(KINDS).map(([type, label]) => {
+    const e = primary.find(x => x.action?.type === type);
+    if (!e) return `<div class="card"><div class="kind">${label}</div><div class="small">No booking yet.</div></div>`;
+    const a = e.action;
+    const review = e.verdict === "REVIEW" ? (resolved[e.id]
+      ? `<div class="needs">Manager ${esc(resolved[e.id].toLowerCase())} this.</div>`
+      : `<div class="needs"><b>Needs manager approval</b> — beyond what was authorized.<br>
+         <button data-act="approve" data-id="${esc(e.id)}">Approve</button><button data-act="reject" data-id="${esc(e.id)}">Reject</button></div>`) : "";
+    return `<div class="card ${esc(e.verdict)}">
+      <div class="row"><span class="kind">${label}</span><span class="chip ${esc(e.verdict)}">${esc(e.verdict)}</span></div>
+      <div class="big">${esc(a.vendor)} · ${usd(a.price)}${a.type === "book_hotel" ? "/night" : ""}</div>
+      <div class="small">${esc([a.class, a.refundable === false ? "non-refundable" : a.refundable ? "refundable" : "", a.destination].filter(Boolean).join(" · "))}</div>
+      <div class="small">via ${esc(a.supplier)}</div>${review}</div>`;
+  }).join("");
+
+  // drift → self-correction strip: newest corrected action and the block that triggered it
+  const fixedIdx = primary.findIndex(e => e.action?.replan_reason);
+  const blocked = fixedIdx >= 0 ? primary.slice(fixedIdx + 1).find(e => e.verdict === "DRIFT") : null;
+  $("stripsec").hidden = !(blocked && fixedIdx >= 0);
+  if (blocked) {
+    const f = primary[fixedIdx], b = blocked.action;
+    $("strip").innerHTML = `
+      <div class="card blocked"><span class="chip DRIFT">BLOCKED</span>
+        <div class="big">${esc(b.vendor)} · ${esc(b.class)} · ${usd(b.price)}</div>
+        <div class="reason">${esc(f.action.replan_reason || blocked.explanation)}</div></div>
+      <div class="arrow">→</div>
+      <div class="card fixed"><span class="chip ${esc(f.verdict)}">SELF-CORRECTED · ${esc(f.verdict)}</span>
+        <div class="big">${esc(f.action.vendor)} · ${esc(f.action.class)} · ${usd(f.action.price)}</div>
+        <div class="reason">Re-planned within policy: preferred carrier, economy, refundable, under cap.</div></div>`;
+  }
+
+  // trail
+  $("trail").innerHTML = rows.map(e => {
+    const d = (e.delegation || []);
+    const chain = d.length ? [d[0].from.split("@")[0], ...d.map(h => h.to)].join(" → ") : "";
+    const a = e.action || {};
+    const what = a.vendor ? `${esc(KINDS[a.type] || a.type)}: ${esc(a.vendor)} ${a.price != null ? usd(a.price) : ""}` : esc(a.type || "");
+    return `<div class="entry ${esc(e.verdict)}">
+      <div class="row"><span><span class="chip ${esc(e.verdict)}">${esc(e.verdict)}</span> <b>${what}</b></span>
+        <span class="meta">${esc(new Date(e.ts).toLocaleString())}</span></div>
+      <p class="expl">${esc(e.explanation)}</p>
+      ${chain ? `<div class="chain">Delegation: ${esc(chain)} · mandate ${esc(e.mandate_id)}</div>` : ""}
+      ${e.cart_mandate ? `<div class="chain">🧾 Cart Mandate <span class="mono">${esc(e.cart_mandate.cartId.slice(0, 10))}…</span> signed · total ${usd(e.cart_mandate.total)}</div>` : ""}
+      ${e.hash ? `<div class="chain mono">hash ${esc(e.hash.slice(0, 16))}… ← ${esc((e.prev_hash || "").slice(0, 8))}…</div>` : `<div class="chain">(legacy entry, pre hash-chain)</div>`}
+    </div>`;
+  }).join("") || '<div class="card"><span class="msg">No entries yet — run a scenario above.</span></div>';
+}
+
+onSnapshot(query(collection(db, "provenance"), orderBy("ts", "desc"), limit(40)), snap => {
+  rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  $("dot").classList.add("on"); $("status").textContent = `connected · ${snap.size} entries`;
+  render(); loadChain();
+}, err => { $("status").textContent = "disconnected: " + err.message; });
+
+/* ---------- actions ---------- */
+async function run(path, label) {
+  const btns = document.querySelectorAll("button"); btns.forEach(b => b.disabled = true);
+  $("runmsg").textContent = `Running ${label}…`;
+  try { await api(path, { method: "POST" }); $("runmsg").textContent = `${label} complete.`; }
+  catch (e) { $("runmsg").textContent = "Failed: " + e.message; }
+  btns.forEach(b => b.disabled = false);
+}
+document.querySelector(".controls").onclick = ev => { const k = ev.target.dataset.run; if (k) run("/run/" + k, ev.target.textContent); };
+$("board").onclick = ev => { const { act, id } = ev.target.dataset; if (act) run("/" + act + "/" + id, act); };
+
+$("replay").onclick = async () => {
+  const cards = [...document.querySelectorAll("#trail .entry")].reverse();
+  const trail = $("trail"); trail.classList.add("replaying");
+  for (const c of cards) {
+    cards.forEach(x => x.classList.remove("hl")); c.classList.add("hl");
+    c.scrollIntoView({ block: "center", behavior: "smooth" });
+    await new Promise(r => setTimeout(r, 900));
+  }
+  cards.forEach(x => x.classList.remove("hl")); trail.classList.remove("replaying");
 };
 
-document.getElementById("run").onclick = async () => {
-  const s = document.getElementById("status"); s.textContent = "Running agent...";
-  try { await fetch(AGENT_URL, { mode: "no-cors" }); s.textContent = "Done."; }
-  catch (e) { s.textContent = "Failed: " + e.message; }
-};
+loadMandate(); loadScore(); loadChain();
 </script>
 </body>
 </html>
