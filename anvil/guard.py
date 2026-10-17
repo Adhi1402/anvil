@@ -7,7 +7,7 @@ def book_with_guard(mandate, action):
     steps = []
     result = audit(mandate, action)
     steps.append({"action": action, "audit": result})
-    if result["verdict"] == "DRIFT":
+    if result["verdict"] == "DRIFT" and action.get("type") == "book_flight":   # self-correction is flight-only
         reason = "; ".join(result["violations"]) or result["explanation"]
         fixed = replan(mandate, reason=reason)          # agent corrects itself
         if fixed:

@@ -40,8 +40,9 @@ DEMO_MANDATE = {
     "flight_class": "economy",
     "max_flight_price_usd": 600,
     "preferred_airlines": ["Air India", "IndiGo"],
-    "allowed_suppliers": ["supplier-agent-1"],
+    "allowed_suppliers": ["supplier-agent-1", "hotel-supplier-1", "transport-supplier-1"],
     "max_hotel_per_night_usd": 300,
+    "max_transport_usd": 100,
     "refundable_required": True,
     "book_by": "2026-11-01",
 }
@@ -59,6 +60,33 @@ def intent_mandate(user, constraints, mandate_id="mandate-001"):
         "nonce": uuid.uuid4().hex,
     }
     return sign_mandate(m)
+
+
+def cart_mandate(intent, action):
+    """AP2 Cart Mandate: signed purchase authorization, issued only after a MATCH (or an approved REVIEW)."""
+    c = {
+        "type": "CartMandate",
+        "cartId": uuid.uuid4().hex,
+        "intentMandateId": intent["mandateId"],      # links the booking back to the human approval
+        "merchant": action["supplier"],
+        "items": [{"name": action.get("vendor"), "kind": action["type"], "amount": action["price"]}],
+        "currency": "USD",
+        "total": action["price"],
+        "authorizedBy": intent["user"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return sign_mandate(c)
+
+
+def delegation_for(intent, action):
+    """Who delegated to whom, all under the single human-signed Intent Mandate."""
+    kind = action["type"].replace("book_", "") + "-agent"
+    mid = intent["mandateId"]
+    return [
+        {"from": intent["user"], "to": "trip-orchestrator", "mandate": mid},
+        {"from": "trip-orchestrator", "to": kind, "mandate": mid},
+        {"from": kind, "to": action["supplier"], "mandate": mid},
+    ]
 
 
 def seed_mandate(mandate=DEMO_MANDATE):
@@ -96,7 +124,7 @@ def _latest_hash():
     return max(tips, key=lambda e: e["ts"])["hash"]
 
 
-def log_provenance(mandate_id, action, audit, delegation=None):
+def log_provenance(mandate_id, action, audit, delegation=None, extra=None):
     prev = _latest_hash()
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -107,6 +135,7 @@ def log_provenance(mandate_id, action, audit, delegation=None):
         "delegation": delegation or [],
         "prev_hash": prev,
     }
+    entry.update(extra or {})                 # e.g. cart_mandate, intent_signature
     entry["hash"] = hashlib.sha256((prev + _canonical(entry)).encode()).hexdigest()
     _, ref = db().collection("provenance").add(entry)
     return ref.id

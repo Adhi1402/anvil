@@ -1,4 +1,5 @@
 """Anvil drift auditor: mandate + proposed action -> MATCH | REVIEW | DRIFT."""
+import hashlib
 import json
 import os
 import time
@@ -32,6 +33,8 @@ Rules:
 - Judge intent, not just literal numbers: structuring a purchase to avoid or sidestep a limit or approval
   threshold (e.g. splitting one booking into several charges) is circumvention of the mandate -> DRIFT.
 - Booking a different service class than the mandate authorizes is unauthorized -> DRIFT.
+- Compare price to the cap that fits the action type: flights vs max_flight_price_usd, hotels (price is
+  per night) vs max_hotel_per_night_usd, transport vs max_transport_usd. The supplier must be allowed.
 - A price over the cap, or a refundability term weaker than required, with everything else in line -> REVIEW.
 
 MANDATE:
@@ -53,17 +56,45 @@ def _client_():
     return _client
 
 
+def _cache_key(mandate, action):
+    blob = json.dumps({"m": mandate, "a": action}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def _cache_get(key):
+    try:
+        from data.store import db
+        doc = db().collection("verdict_cache").document(key).get()
+        return doc.to_dict()["verdict"] if doc.exists else None
+    except Exception:
+        return None
+
+
+def _cache_put(key, verdict):
+    try:
+        from data.store import db
+        db().collection("verdict_cache").document(key).set({"verdict": verdict})
+    except Exception:
+        pass                                           # the cache is best-effort, never blocks an audit
+
+
 def audit(mandate, action):
     contents = PROMPT.format(mandate=json.dumps(mandate, indent=2), action=json.dumps(action, indent=2))
     config = types.GenerateContentConfig(
         response_mime_type="application/json", response_schema=SCHEMA, temperature=0
     )
+    key = _cache_key(mandate, action)
     for attempt in range(5):                       # ride out quota (429) / overload (503) blips
         try:
             resp = _client_().models.generate_content(model=MODEL, contents=contents, config=config)
-            return json.loads(resp.text)
+            verdict = json.loads(resp.text)
+            _cache_put(key, verdict)
+            return verdict
         except errors.APIError as e:
             if e.code not in (429, 500, 503) or attempt == 4:
+                cached = _cache_get(key)               # last good verdict for this exact input (temp 0 => stable)
+                if cached:
+                    return cached
                 raise
             time.sleep(2 ** attempt)
 

@@ -2,14 +2,22 @@
 import html
 import json
 import os
+from datetime import datetime, timezone
 from google.cloud.firestore_v1.base_query import FieldFilter
 from flask import Flask, jsonify, request, redirect
-from agents.run import travel_agent
+from agents.run import travel_agent, plan_trip
 from anvil.audit import audit, rules_baseline
 from anvil.guard import book_with_guard
-from data.store import db, get_mandate, verify_mandate, log_provenance, list_provenance
+from data.store import (db, get_mandate, verify_mandate, log_provenance, list_provenance, verify_chain,
+                        delegation_for, cart_mandate)
 
 app = Flask(__name__)
+
+
+@app.after_request
+def cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"      # public read API for the Firebase-hosted dashboard
+    return resp
 
 PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Anvil</title>
@@ -48,19 +56,31 @@ def run():
     return redirect("/") if request.method == "POST" else jsonify(out)
 
 
+def _log_steps(intent, steps):
+    """Log every step with its 3-hop delegation chain; MATCH steps also get a signed Cart Mandate."""
+    for st in steps:
+        extra = {"intent_signature": intent["signature"]}
+        if st["audit"]["verdict"] == "MATCH":
+            extra["cart_mandate"] = cart_mandate(intent, st["action"])
+        st["provenance_id"] = log_provenance(intent["mandateId"], st["action"], st["audit"],
+                                             delegation=delegation_for(intent, st["action"]), extra=extra)
+
+
 @app.route("/run/<scenario>", methods=["GET", "POST"])
 def run_scenario(scenario):
-    """Fire a named scenario on demand: guard logs every step (block, then self-correction)."""
+    """Fire a named scenario on demand ('trip' = flight+hotel+transport). Guard logs every step."""
     from data.scenarios import SCENARIOS
     intent = get_mandate()
     if not verify_mandate(intent):
         return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
     mandate = intent["constraints"]
-    s = next((x for x in SCENARIOS if x["name"].lower().startswith(scenario.lower())), None)
-    action = s["action"] if s else travel_agent(mandate)
-    steps = book_with_guard(mandate, action)
-    for st in steps:
-        st["provenance_id"] = log_provenance(intent["mandateId"], st["action"], st["audit"])
+    if scenario.lower() == "trip":
+        actions = plan_trip(mandate)
+    else:
+        s = next((x for x in SCENARIOS if x["name"].lower().startswith(scenario.lower())), None)
+        actions = [s["action"] if s else travel_agent(mandate)]
+    steps = [st for action in actions for st in book_with_guard(mandate, action)]
+    _log_steps(intent, steps)
     return jsonify(steps)
 
 
@@ -78,8 +98,13 @@ def _resolve_review(entry_id, approved):
     audit_like = {"verdict": verdict, "severity": "none", "violations": [],
                   "explanation": ("Human re-consented: manager approved the escalated action."
                                   if approved else "Manager rejected the escalated action; it will not proceed.")}
+    intent = get_mandate()
     action = {**e["action"], "re_consent_for": entry_id}
-    new_id = log_provenance(e["mandate_id"], action, audit_like)
+    extra = {"intent_signature": intent["signature"]}
+    if approved:                                   # AP2: a human-approved REVIEW earns a Cart Mandate
+        extra["cart_mandate"] = cart_mandate(intent, e["action"])
+    new_id = log_provenance(e["mandate_id"], action, audit_like,
+                            delegation=delegation_for(intent, e["action"]), extra=extra)
     return jsonify({"verdict": verdict, "provenance_id": new_id})
 
 
@@ -95,8 +120,37 @@ def reject(entry_id):
 
 @app.route("/api/eval")
 def api_eval():
+    """Scoreboard. Cached in Firestore (5 Gemini calls per run); ?refresh=1 recomputes."""
     from anvil.eval import run_eval
-    return jsonify(run_eval())
+    ref = db().collection("meta").document("eval_latest")
+    if not request.args.get("refresh"):
+        cached = ref.get()
+        if cached.exists:
+            return jsonify(cached.to_dict()["result"])
+    result = run_eval()
+    ref.set({"result": result, "ts": datetime.now(timezone.utc).isoformat()})
+    return jsonify(result)
+
+
+@app.route("/api/mandate")
+def api_mandate():
+    intent = get_mandate()
+    return jsonify({"mandate": intent, "signature_valid": verify_mandate(intent)})
+
+
+@app.route("/api/mandate/tampered")
+def api_mandate_tampered():
+    """Demo: a copy of the mandate with one term changed must fail verification."""
+    forged = json.loads(json.dumps(get_mandate()))
+    old = forged["constraints"]["max_flight_price_usd"]
+    forged["constraints"]["max_flight_price_usd"] = 99999
+    return jsonify({"changed": f"max_flight_price_usd: {old} -> 99999", "signature_valid": verify_mandate(forged)})
+
+
+@app.route("/api/verify")
+def api_verify():
+    ok, broken_at = verify_chain()
+    return jsonify({"chain_ok": ok, "broken_at": broken_at})
 
 
 @app.route("/api/provenance")

@@ -1,42 +1,28 @@
-"""Travel agent <-> supplier agent exchange one A2A-style message; yields a proposed action."""
-import uuid
+"""Buyer-side agents. They DISCOVER supplier agents via Agent Cards and talk A2A (JSON-RPC)."""
+from agents.a2a import discover, send, clear_discovery
 
-SUPPLIER_ID = "supplier-agent-1"
-INVENTORY = [
-    {"vendor": "Air India", "price": 480, "class": "economy", "refundable": True, "destination": "Mumbai"},
-    {"vendor": "Air India", "price": 520, "class": "economy", "refundable": True, "destination": "Mumbai"},
-    {"vendor": "IndiGo", "price": 430, "class": "economy", "refundable": False, "destination": "Mumbai"},
-]
+TRIP_ORCHESTRATOR = "trip-orchestrator"
 
 
-def message(sender, to, kind, body):
-    return {"id": str(uuid.uuid4()), "from": sender, "to": to, "type": kind, "body": body}
-
-
-def supplier_agent(msg):
-    """Hard-coded supplier: replies to a flight query with its options."""
-    q = msg["body"]
-    offers = [o for o in INVENTORY if o["destination"] == q["destination"] and o["price"] <= q["max_price"]]
-    return message(SUPPLIER_ID, msg["from"], "flight_offers", {"offers": offers})
+def _offers(agent, data):
+    result = send(discover(agent), data)[1]
+    return result["supplier"], result["offers"]
 
 
 def travel_agent(mandate):
-    query = message("travel-agent", SUPPLIER_ID, "flight_query",
-                    {"destination": mandate["destination"], "max_price": mandate["max_flight_price_usd"]})
-    reply = supplier_agent(query)
-    offers = reply["body"]["offers"]
+    supplier, offers = _offers("flight", {"destination": mandate["destination"],
+                                          "max_price": mandate["max_flight_price_usd"]})
     if not offers:
         return None
     best = sorted(offers, key=lambda o: (mandate.get("refundable_required") and not o["refundable"],
-                                           o["vendor"] not in mandate["preferred_airlines"], o["price"]))[0]
-    return {"type": "book_flight", "supplier": reply["from"], **best}
+                                         o["vendor"] not in mandate["preferred_airlines"], o["price"]))[0]
+    return {"type": "book_flight", "supplier": supplier, **best}
 
 
 def replan(mandate, reason=""):
     """Strict planner: honor class, preferred airlines, refundability, cap. Used after a block."""
-    query = message("travel-agent", SUPPLIER_ID, "flight_query",
-                    {"destination": mandate["destination"], "max_price": mandate["max_flight_price_usd"]})
-    offers = supplier_agent(query)["body"]["offers"]
+    supplier, offers = _offers("flight", {"destination": mandate["destination"],
+                                          "max_price": mandate["max_flight_price_usd"]})
     compliant = [o for o in offers
                  if o["class"] == mandate["flight_class"]
                  and o["vendor"] in mandate["preferred_airlines"]
@@ -45,10 +31,35 @@ def replan(mandate, reason=""):
     if not compliant:
         return None
     best = sorted(compliant, key=lambda o: o["price"])[0]
-    return {"type": "book_flight", "supplier": SUPPLIER_ID, "replan_reason": reason, **best}
+    return {"type": "book_flight", "supplier": supplier, "replan_reason": reason, **best}
+
+
+def hotel_agent(mandate):
+    cap = mandate["max_hotel_per_night_usd"]
+    supplier, offers = _offers("hotel", {"destination": mandate["destination"], "max_price": cap})
+    opts = [h for h in offers if h["price"] <= cap
+            and (not mandate.get("refundable_required") or h["refundable"])]
+    if not opts:
+        return None
+    best = sorted(opts, key=lambda h: h["price"])[0]
+    return {"type": "book_hotel", "supplier": supplier, **best}
+
+
+def transport_agent(mandate):
+    supplier, offers = _offers("transport", {"destination": mandate["destination"],
+                                             "max_price": mandate.get("max_transport_usd")})
+    return {"type": "book_transport", "supplier": supplier, **offers[0]} if offers else None
+
+
+def plan_trip(mandate):
+    """One mandate dispatches three sub-agents over A2A. Discovery runs once, at trip start."""
+    clear_discovery()
+    for agent in ("flight", "hotel", "transport"):
+        discover(agent)
+    return [a for a in (travel_agent(mandate), hotel_agent(mandate), transport_agent(mandate)) if a]
 
 
 if __name__ == "__main__":
     import json
     from data.store import DEMO_MANDATE
-    print(json.dumps(travel_agent(DEMO_MANDATE), indent=2))
+    print(json.dumps(plan_trip(DEMO_MANDATE), indent=2))
