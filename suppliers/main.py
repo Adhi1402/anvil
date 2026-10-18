@@ -28,13 +28,13 @@ _FLIGHTS = [
     {"vendor": "Vistara", "price": 540, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "UK 861", "out": "09:30", "back": "12:55", "mins": 130},
 ]
 _HOTELS = [
-    {"vendor": "Taj", "price": 280, "refundable": True, "destination": "Mumbai"},
-    {"vendor": "OYO", "price": 180, "refundable": False, "destination": "Mumbai"},
-    {"vendor": "Lemon Tree", "price": 140, "refundable": False, "destination": "Mumbai"},
-    {"vendor": "Marriott", "price": 295, "refundable": True, "destination": "Mumbai"},
+    {"vendor": "Taj", "price": 280, "refundable": True, "destination": "Mumbai", "room": "Deluxe room, breakfast included"},
+    {"vendor": "OYO", "price": 180, "refundable": False, "destination": "Mumbai", "room": "Standard room"},
+    {"vendor": "Lemon Tree", "price": 140, "refundable": False, "destination": "Mumbai", "room": "Superior room, breakfast included"},
+    {"vendor": "Marriott", "price": 295, "refundable": True, "destination": "Mumbai", "room": "Executive room, breakfast included"},
 ]
-_TRANSPORT = [{"vendor": "Uber", "price": 40, "destination": "Mumbai"},
-             {"vendor": "Ola Prime", "price": 85, "destination": "Mumbai"}]
+_TRANSPORT = [{"vendor": "Uber", "price": 40, "destination": "Mumbai", "vehicle": "Sedan (UberX)"},
+             {"vendor": "Ola Prime", "price": 85, "destination": "Mumbai", "vehicle": "Prime Sedan"}]
 FLIGHTS, HOTELS, TRANSPORT = _everywhere(_FLIGHTS), _everywhere(_HOTELS), _everywhere(_TRANSPORT)
 
 

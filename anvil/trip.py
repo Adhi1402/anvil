@@ -21,7 +21,7 @@ COST_CENTERS = {"CC-1042": "Sales, APAC", "CC-2210": "Engineering, Platform", "C
 PREFS = ("morning", "afternoon", "evening", "any")
 # Fields a trip adds to an action. The auditor never sees them; the trip gate and the UI do.
 SCHEDULE_KEYS = ("leg", "trip", "flight_no", "from_city", "to_city", "from_code", "to_code", "from_place", "to_place", "route", "depart", "arrive",
-                 "check_in", "check_out", "nights", "total", "pickup", "considered")
+                 "check_in", "check_out", "nights", "total", "pickup", "considered", "room", "vehicle")
 LEG_ORDER = ["flight_out", "transfer_out", "hotel", "transfer_back", "flight_back"]
 LEG_LABEL = {"flight_out": "Outbound flight", "transfer_out": "Airport to hotel", "hotel": "Hotel",
              "transfer_back": "Hotel to airport", "flight_back": "Return flight"}

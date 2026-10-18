@@ -93,8 +93,13 @@ with sync_playwright() as p:
     r.wait_for_selector("#h-list .item")
     card = r.locator("#h-list .item").first.inner_text()
     check("the trip card shows route, round trip, dates, nights, cost centre and total", all(x in card for x in ("Bengaluru → Mumbai", "Round trip", "3 nights", "CC-1042", "Trip cost")), card[:300])
-    check("the itinerary lists five bookings in order with times", r.locator("#h-list .item").first.locator(".leg-row").count() == 5 and "06:10" in card and "check-in" in card, card[:400])
+    check("the itinerary is day by day: flight times, cab pickup with from/to, stay with check-in, booking refs", r.locator("#h-list .item").first.locator(".ev").count() == 6 and "06:10" in card and "check-in from" in card.lower() and "Booking ref ANV-" in card and "pickup" in card.lower() and "from" in card.lower() and "Kempegowda" not in card, card[:400])
     check("the stay is priced for every night", "$840" in card, card)
+    r.locator("#h-list .item").first.get_by_role("button", name="Open itinerary").click()
+    r.wait_for_selector("#modal .itinerary")
+    check("the printable itinerary opens with traveller, dates, room and totals", all(x in r.inner_text("#modal") for x in ("Traveller", "Rahul", "Deluxe room", "check-out by", "Booked and approved")), r.inner_text("#modal")[:300])
+    shot(r, "itinerary_modal", full_page=False)
+    r.click("#it-close")
 
     # ---- employee: a late trip is escalated as ONE trip
     plan(r, D(3), D(5), "Customer escalation, travelling at short notice", wait_for="Sent for approval", dest="Goa")
@@ -111,7 +116,7 @@ with sync_playwright() as p:
     nav = a.inner_text("#nav")
     check("manager menu: Approvals, My trips, Activity, Spend, Policy; no Agents, Audit or Demo", all(x in nav for x in ("Approvals", "My trips", "Activity", "Spend", "Policy")) and not any(x in nav for x in ("Agents", "Audit", "Demo", "Overview")), nav)
     mine = a.locator("#a-list .item", has_text="Rahul")
-    check("the manager sees the late trip as one card with all five bookings, soonest first", mine.count() == 1 and mine.first.locator(".leg-row").count() == 5, mine.count())
+    check("the manager sees the late trip as one card with all five bookings, soonest first", mine.count() == 1 and mine.first.locator(".ev").count() == 6, mine.count())
     txt = mine.first.inner_text()
     check("the approval card shows dates, purpose, cost centre, the reason and the notice rule", all(x in txt for x in ("Client meeting", "CC-1042", "Customer escalation", "days' notice", "Departs in")), txt[:500])
     shot(a, "manager_approvals", full_page=True)

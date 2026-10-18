@@ -328,6 +328,53 @@ function legRow(e, res, quiet) {
     ${n ? `<button class="link opt-toggle" data-act="toggle" data-id="${esc(oid)}">${open ? "Hide the options" : `See the ${n} options considered`}</button>` : ""}</div><div class="cost">${d.cost}</div><div class="st">${badge(st)}</div></div>${open ? optionsPanel(e) : ""}</div>`;
 }
 
+/* ---- the itinerary: what a traveller needs to know, day by day ---- */
+const CHECKIN = "15:00", CHECKOUT = "11:00";
+const refOf = (e, res) => { const c = e.cart_mandate || res?.[e.id]?.cart; return c?.cartId ? "ANV-" + c.cartId.slice(0, 8).toUpperCase() : ""; };
+const nextDay = (a, b) => a && b && String(a).slice(0, 10) !== String(b).slice(0, 10) ? ` <sup>+${Math.round((dayOf(b) - dayOf(a)) / 864e5)}</sup>` : "";
+function itinEvents(fin) {
+  const ev = [];
+  fin.forEach(e => { const a = e.action || {}, k = kindOf(a);
+    if (k === "flight" && a.depart) ev.push({ t: a.depart, e, type: "flight" });
+    else if (k === "transport" && a.pickup) ev.push({ t: a.pickup, e, type: "cab" });
+    else if (k === "hotel" && a.check_in) { ev.push({ t: a.check_in + "T" + CHECKIN, e, type: "checkin" }); if (a.check_out) ev.push({ t: a.check_out + "T" + CHECKOUT, e, type: "checkout" }); }
+    else ev.push({ t: e.ts || "", e, type: "other" }); });
+  return ev.sort((x, y) => String(x.t).localeCompare(String(y.t)));
+}
+function evBody(x) {
+  const a = x.e.action || {};
+  if (x.type === "flight") return { time: `<b>${fmtTime(a.depart)}</b><small>arrives ${fmtTime(a.arrive)}${nextDay(a.depart, a.arrive)}</small>`, icon: "plane",
+    html: `<b>${esc(a.vendor)} · ${esc(a.flight_no || "")}</b><div>${esc(a.from_city)} (${esc(codeOf(a.from_code, a.from_city))}) → ${esc(a.to_city)} (${esc(codeOf(a.to_code, a.to_city))})</div><div class="ev-s">${durOf(a.depart, a.arrive)} · ${esc((a.class || "economy").replace(/^./, c => c.toUpperCase()))} · ${a.refundable === false ? "Non-refundable fare" : "Refundable fare"}</div>${routeSvg(a)}`, price: usd(a.price) };
+  if (x.type === "cab") return { time: `<b>${fmtTime(a.pickup)}</b><small>pickup</small>`, icon: "car",
+    html: `<b>${esc(a.vendor)}${a.vehicle ? " · " + esc(a.vehicle) : ""}</b><div class="ev-ft"><span>From</span> ${esc(a.from_place || "—")}</div><div class="ev-ft"><span>To</span> ${esc(a.to_place || "—")}</div><div class="ev-s">${esc(a.route || LEGL[a.leg] || "Ground transport")}</div>${carStrip(a)}`, price: usd(a.price) };
+  if (x.type === "checkin") return { time: `<b>${CHECKIN}</b><small>check-in from</small>`, icon: "bed",
+    html: `<b>${esc(a.vendor)}, ${esc(a.trip?.destination || "")}</b><div>${esc(a.room || "Hotel room")}</div><div class="ev-s">${esc(fmtDay(a.check_in))} → ${esc(fmtDay(a.check_out))} · ${plural(a.nights || 1, "night")} · ${usd(a.price)} per night · ${a.refundable === false ? "Non-refundable" : "Refundable"}</div><div class="stay">${moons(a.nights || 1)}</div>`, price: usd(stake(a)) };
+  if (x.type === "checkout") return { time: `<b>${CHECKOUT}</b><small>check-out by</small>`, icon: "bed", html: `<b>Check out of ${esc(a.vendor)}</b>`, price: "", minor: true };
+  return { time: "", icon: "shield", html: `<b>${esc(itemTitle(a))}</b>`, price: usd(stake(a)) };
+}
+function itinerary(fin, res, quiet, plainTitle) {
+  const evs = itinEvents(fin); if (!evs.length) return "";
+  const days = []; evs.forEach(x => { const d = String(x.t).slice(0, 10), g = days.find(y => y.d === d) || (days.push({ d, items: [] }), days[days.length - 1]); g.items.push(x); });
+  const first = days[0].d;
+  return `<div class="itinerary">${days.map(g => `<div class="day"><div class="day-h"><b>${esc(fmtDay(g.d))}</b><small>Day ${Math.round((dayOf(g.d) - dayOf(first)) / 864e5) + 1}</small></div>
+    ${g.items.map(x => { const b = evBody(x), st = statusOf(x.e, res), live = st.cls === "ok", ref = live && x.type !== "checkout" ? refOf(x.e, res) : "", oid = "o" + x.e.id, open = S.open.has(oid) && x.type !== "checkout", n = (x.e.considered || []).length;
+      return `<div class="ev ${b.minor ? "minor" : ""} ${st.cls}"><div class="ev-t">${b.time}</div><span class="ev-i">${svgi(b.icon)}</span>
+        <div class="ev-b">${b.html}${st.cls !== "ok" && !quiet && x.type !== "checkout" ? `<span class="why">${esc(short(x.e.explanation, 170))}</span>` : ""}${x.e.action?.replan_reason && x.type !== "checkout" ? ` <span class="tag">Corrected by the agent</span>` : ""}
+          ${n && x.type !== "checkout" && !plainTitle ? `<button class="link opt-toggle" data-act="toggle" data-id="${esc(oid)}">${open ? "Hide the options" : `See the ${n} options considered`}</button>` : ""}</div>
+        <div class="ev-r">${b.price ? `<b>${b.price}</b>` : ""}${x.type === "checkout" ? "" : badge(st)}${ref ? `<small>Booking ref ${esc(ref)}</small>` : x.type !== "checkout" && !live ? `<small>${st.cls === "warn" ? "Not booked until approved" : "Not booked"}</small>` : ""}</div></div>${open ? optionsPanel(x.e) : ""}`; }).join("")}</div>`).join("")}</div>`;
+}
+function tripFacts(trip, fin, res) {
+  const live = fin.filter(e => statusOf(e, res).cls === "ok"), total = live.reduce((s, e) => s + stake(e.action), 0), waiting = fin.filter(e => statusOf(e, res).cls === "warn").reduce((s, e) => s + stake(e.action), 0);
+  return `<div class="facts"><div><small>Traveller</small><b>${esc(trip?.traveler || "—")}</b></div><div><small>Dates</small><b>${trip ? esc(tripRange(trip)) : "—"}</b></div><div><small>Stay</small><b>${trip?.nights ? plural(trip.nights, "night") : "No hotel"}</b></div><div><small>Booked and approved</small><b>${usd(total)}</b></div>${waiting ? `<div><small>Awaiting approval</small><b class="warn-t">${usd(waiting)}</b></div>` : ""}${trip?.cost_center ? `<div><small>Cost centre</small><b>${esc(ccName(trip.cost_center))}</b></div>` : ""}</div>`;
+}
+function openItinerary(entries, trip) {
+  const res = resolvedMap(), fin = finals({ entries }), m = $("modal");
+  m.innerHTML = `<div class="modal-bg"><div class="modal wide" role="dialog" aria-modal="true" aria-labelledby="it-t"><div class="row between no-print"><h3 id="it-t" style="margin:0">Itinerary</h3><div class="row"><button class="btn sm" id="it-print">Print or save as PDF</button><button class="btn sm primary" id="it-close">Close</button></div></div>
+    <div class="print-only"><b>ANVIL · Travel itinerary</b></div>
+    ${trip ? `<div style="margin-top:10px">${tripHead(trip)}</div>` : ""}${tripFacts(trip, fin, res)}${itinerary(fin, res, true, true)}
+    <p class="small" style="margin:14px 0 0">Times are local to each airport. A booking reference is shown once a booking is approved and its signed receipt is issued.</p></div></div>`;
+  const done = () => { m.innerHTML = ""; }; $("it-close").onclick = done; $("it-print").onclick = () => window.print(); m.querySelector(".modal-bg").onclick = e => { if (e.target.classList.contains("modal-bg")) done(); };
+}
 /* ---- the journey ribbon and Anvil's summary of a trip ---- */
 function ribbon(fin, res) {
   const by = {}; fin.forEach(e => { by[e.action?.leg] = e; }); if (!by.flight_out && !by.flight_back) return "";
@@ -422,13 +469,14 @@ function reqCard(g, res) {
   const pend = fin.filter(e => e.verdict === "REVIEW" && !res[e.id]).map(e => e.id), decided = fin.map(e => res[e.id]).find(r => r && !r.withdrawn);
   const head = t ? tripHead(t) : `<div class="t">${g.request ? "Trip request" : esc(itemTitle(first.action))}</div>${g.request ? `<div class="small">“${esc(g.request)}”</div>` : ""}`;
   const shared = sharedReason(fin, res);
-  const body = t || fin.length > 1 ? `<div class="itin">${fin.map(e => legRow(e, res, !!shared)).join("")}</div>${shared ? `<div class="impact ${g.st.cls === "bad" ? "" : "warn"}"><b>Why:</b> ${esc(shared)}</div>` : ""}` : `<p class="why">${esc(short(first.explanation, 170))}</p>${chipsFor(first, res) ? `<div class="meta">${chipsFor(first, res)}</div>` : ""}`;
+  const scheduled = fin.some(e => e.action?.depart || e.action?.pickup || e.action?.check_in);
+  const body = t && scheduled ? `${itinerary(fin, res, !!shared)}${shared ? `<div class="impact ${g.st.cls === "bad" ? "" : "warn"}"><b>Why:</b> ${esc(shared)}</div>` : ""}` : t || fin.length > 1 ? `<div class="itin">${fin.map(e => legRow(e, res, !!shared)).join("")}</div>${shared ? `<div class="impact ${g.st.cls === "bad" ? "" : "warn"}"><b>Why:</b> ${esc(shared)}</div>` : ""}` : `<p class="why">${esc(short(first.explanation, 170))}</p>${chipsFor(first, res) ? `<div class="meta">${chipsFor(first, res)}</div>` : ""}`;
   return `<div class="item ${g.st.cls}"><span class="mark"></span><div class="body">${headRow(head, badge(g.st))}${t ? ribbon(fin, res) : ""}${body}${t || fin.length > 1 ? guardBand(fin, res) : ""}
     ${total ? `<div class="totals"><span>Trip cost <b>${usd(total)}</b></span>${waiting ? `<span class="warn-t">${usd(waiting)} awaiting approval</span>` : ""}</div>` : ""}
     ${t?.justification ? `<p class="small" style="margin:6px 0 0">Business reason: “${esc(t.justification)}”</p>` : ""}
     ${decided ? `<div class="meta"><span>${decided.verdict === "APPROVED" ? "Approved" : "Rejected"} by <b>${esc(decided.by || "a manager")}</b> · ${esc(fmtWhen(decided.ts))}</span>${decided.comment ? `<span>“${esc(decided.comment)}”</span>` : ""}</div>` : ""}
     <div class="meta"><span title="${esc(new Date(first.ts).toLocaleString())}">Requested ${esc(fmtWhen(first.ts))} · ${esc(ago(first.ts))}</span>${t && g.st.key !== "bad" ? countdown(t) : ""}
-      <button class="link" data-act="toggle" data-id="${esc(key)}">${open ? "Hide details" : "Why and how it was checked"}</button>
+      ${t && scheduled ? `<button class="link" data-act="itinerary" data-key="${esc(g.key)}">Open itinerary to print or save</button>` : ""}<button class="link" data-act="toggle" data-id="${esc(key)}">${open ? "Hide details" : "Why and how it was checked"}</button>
       ${pend.length ? `<button class="link" style="color:var(--bad)" data-act="withdraw" data-ids="${esc(pend.join(","))}">Withdraw request</button>` : ""}</div>
     ${open ? g.entries.map(e => `<div class="subhead">${esc(itemTitle(e.action))}</div>${detailBlock(e, res, false)}`).join("") : ""}</div></div>`;
 }
@@ -577,7 +625,7 @@ async function submitTrip() {
   const text = `${rt ? "Round trip" : "One way"} ${f.origin} to ${f.dest}, ${fmtDay(f.dep)}${rt ? " to " + fmtDay(f.ret) : ""}, ${f.purpose.toLowerCase()}.${f.note ? " " + f.note : ""}`.slice(0, 480);
   nlBusy = true; $("t-go").disabled = true; $("t-go").textContent = "Booking…"; const out = $("nl-progress"); liveStart(out);
   const line = (t, c = "") => { const d = document.createElement("div"); d.className = "gl-line " + c; d.innerHTML = t; $("gl-end").appendChild(d); };
-  const fin = {};
+  const fin = {}, got = {};
   try {
     const r = await fetch(BASE + "/stream/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, requester: myName(), trip }) });
     if (!r.ok) throw new Error((await r.json()).error || r.statusText);
@@ -585,9 +633,11 @@ async function submitTrip() {
     for (;;) { const { done, value } = await rd.read(); if (done) break; buf += dec.decode(value, { stream: true }); let i;
       while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (!l.trim()) continue; const ev = JSON.parse(l);
         liveEvent(ev);
-        if (ev.event === "step") fin[legKey(ev.step)] = ev.step.audit.verdict;
+        if (ev.event === "step") { fin[legKey(ev.step)] = ev.step.audit.verdict; const st = ev.step; got[legKey(st)] = { id: st.provenance_id, verdict: st.audit.verdict, action: st.action, explanation: st.audit.explanation, cart_mandate: st.cart_mandate, ts: new Date().toISOString() }; }
         else if (ev.event === "run_done") { const v = Object.values(fin), ok = v.every(x => x === "MATCH"), wait = v.includes("REVIEW"), blocked = v.includes("DRIFT");
-          line(ok ? "<b>Approved.</b> Every booking is inside the policy and a receipt was issued for each." : wait ? "<b>Sent for approval.</b> The bookings that are outside the policy are with a finance manager; you will see their decision here." : blocked ? "<b>Some bookings were blocked.</b> See the reasons in your list." : "<b>Done.</b>", ok ? "ok" : wait ? "warn" : "bad"); }
+          line(ok ? "<b>Approved.</b> Every booking is inside the policy and a receipt was issued for each." : wait ? "<b>Sent for approval.</b> The bookings that are outside the policy are with a finance manager; you will see their decision here." : blocked ? "<b>Some bookings were blocked.</b> See the reasons in your list." : "<b>Done.</b>", ok ? "ok" : wait ? "warn" : "bad");
+          const ents = Object.values(got), shown = { ...trip, nights: f.hotel ? est.x.nights : 0 }; S.lastTrip = { entries: ents, trip: shown }; const box = document.createElement("div"); box.className = "final-itin";
+          box.innerHTML = `<div class="row between"><h3 style="margin:0">${ok ? "Your trip is booked" : wait ? "Your trip is waiting for approval" : "Your trip"}</h3><button class="btn sm" data-act="itinerary" data-key="last">Print or save</button></div>${tripHead(shown)}${tripFacts(shown, ents, {})}${itinerary(ents, {}, true, true)}`; $("gl-end").appendChild(box); box.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
         else if (ev.event === "error") line("Error: " + esc(ev.message), "bad"); } }
   } catch (e) { line("Could not run: " + esc(e.message), "bad"); }
   nlBusy = false; $("t-go").textContent = "Check against policy and book"; tfEstimate(); scheduleMetrics();
@@ -631,7 +681,7 @@ function approvalCard(g, res) {
   return `<div class="item warn"><span class="mark"></span><div class="body">
     ${t ? tripHead(t) : `<div class="t">${esc(itemTitle(g.pend[0].action))}</div>`}
     <div class="meta"><span><b>${esc(g.requester || "An agent")}</b> asked ${esc(fmtWhen(g.ts))}</span><span>waiting ${esc(waited(g.ts))}</span>${urgent ? `<span class="tag warn">Departs in ${plural(Math.max(0, daysTo(t.depart_date)), "day")}</span>` : t ? countdown(t) : ""}${isSim(g.pend[0]) ? `<span class="tag sim">Simulated</span>` : ""}</div>
-    ${t ? ribbon(all, res) : ""}${all.length > 1 ? `<div class="itin">${all.map(e => legRow(e, res, true)).join("")}</div>` : ""}${all.length > 1 ? guardBand(all, res) : ""}
+    ${t ? ribbon(all, res) : ""}${all.length > 1 ? (all.some(e => e.action?.depart || e.action?.pickup || e.action?.check_in) ? itinerary(all, res, true) : `<div class="itin">${all.map(e => legRow(e, res, true)).join("")}</div>`) : ""}${all.length > 1 ? guardBand(all, res) : ""}
     ${g.pend.filter(e => e.considered).map(e => optionsPanel(e)).join("")}
     <div class="impact warn" style="margin-top:10px"><b>Why it needs you</b><ul class="reasons">${reasons}</ul></div>
     ${t?.justification ? `<p class="small" style="margin:8px 0 0">Business reason from ${esc(g.requester || "the requester")}: “${esc(t.justification)}”</p>` : ""}
@@ -1187,6 +1237,7 @@ document.addEventListener("click", async ev => {
     if (!(await confirmDlg("Withdraw this request?", "Nothing will be booked and the approver will no longer see it. You can plan the trip again at any time.", "Withdraw request", true))) return;
     el.disabled = true; try { for (const i of el.dataset.ids.split(",")) { await post("/withdraw/" + i, { requester: myName() }); S.localRes[i] = { verdict: "REJECTED", by: myName(), comment: "", ts: new Date().toISOString(), withdrawn: true }; } toast("Request withdrawn."); scheduleMetrics(); refresh(); } catch (e) { toast(e.message, true); el.disabled = false; } return; }
   if (act === "newtrip") { openForm(true); return; }
+  if (act === "itinerary") { const key = el.dataset.key, ents = key === "last" ? S.lastTrip.entries : S.rows.filter(e => tripOf(e)?.id === key).slice().reverse(); openItinerary(ents, key === "last" ? S.lastTrip.trip : ents[0] && tripOf(ents[0])); return; }
   if (act === "editpolicy") { if (!S.policy) { toast("The policy is still loading.", true); return; } S.f.policyEdit = true; $("p-edit").innerHTML = policyFormHtml(); $("p-edit").hidden = false; $("p-edit").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
   if (act === "cancelpolicy") { S.f.policyEdit = false; $("p-edit").hidden = true; $("p-edit").innerHTML = ""; return; }
   if (act === "savepolicy") { el.disabled = true; await savePolicy(); el.disabled = false; return; }

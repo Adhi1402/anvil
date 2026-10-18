@@ -196,7 +196,7 @@ dl.terms dt{color:var(--muted);font-size:13px} dl.terms dd{margin:0;font-weight:
 .res h4{margin:0 0 4px;font-size:14.5px}
 .res p{margin:4px 0;font-size:13.5px}
 .progress{display:flex;flex-direction:column;gap:6px;margin-top:12px;font-size:13px}
-.progress div{padding:6px 10px;border-radius:var(--r-sm);background:var(--surface2);border-left:3px solid var(--c,var(--line2))}
+.progress>div.gl-line{padding:6px 10px;border-radius:var(--r-sm);background:var(--surface2);border-left:3px solid var(--c,var(--line2))}
 .progress .ok{--c:var(--ok)} .progress .warn{--c:var(--warn)} .progress .bad{--c:var(--bad)}
 
 /* ---- login ---- */
@@ -402,3 +402,23 @@ details.card>summary::after{content:"+";float:right;color:var(--muted)} details.
 .modal p{white-space:pre-line}
 .tr-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px} .tr-pre{max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px;margin-top:6px} .tr-pre .pm{color:var(--accent)}
 @media (max-width:960px){.tr-cols{grid-template-columns:1fr}}
+
+/* ---- itinerary ---- */
+.itinerary{margin-top:12px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+.day-h{display:flex;align-items:baseline;gap:10px;padding:8px 14px;background:var(--surface2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-size:13px} .day:first-child .day-h{border-top:0} .day-h small{color:var(--muted)}
+.ev{display:grid;grid-template-columns:92px 38px minmax(0,1fr) auto;gap:4px 12px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:start}
+.ev:last-child{border-bottom:0} .ev.warn{background:var(--warn-bg)} .ev.bad{background:var(--bad-bg)} .ev.minor{padding-top:6px;padding-bottom:6px;opacity:.85}
+.ev-t b{display:block;font-size:20px;letter-spacing:-.01em;font-variant-numeric:tabular-nums} .ev-t small{display:block;font-size:11.5px;color:var(--muted)} .ev-t sup,.ev-t small sup{font-size:10px}
+.ev-i{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)} .ev-i .ico{width:17px;height:17px}
+.ev.ok .ev-i{background:var(--ok-bg);color:var(--ok)} .ev.warn .ev-i{background:var(--warn-bg);color:var(--warn)} .ev.bad .ev-i{background:var(--bad-bg);color:var(--bad)}
+.ev-b{min-width:0;font-size:13.5px} .ev-b>b{font-size:14.5px} .ev-s{color:var(--muted);font-size:12.5px;margin-top:1px} .ev-b .why{display:block;color:var(--text2);font-size:12.5px;margin-top:3px}
+.ev-ft{font-size:13px;color:var(--text2)} .ev-ft span{display:inline-block;width:34px;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em}
+.ev-r{display:flex;flex-direction:column;align-items:flex-end;gap:5px;text-align:right} .ev-r b{font-size:15px;font-variant-numeric:tabular-nums} .ev-r small{font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:12px 0} .facts>div{padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface2)} .facts small{display:block;font-size:11.5px;color:var(--muted)} .facts b{font-size:14px}
+.final-itin{margin-top:16px;padding:16px;border:1px solid var(--ok-line);border-radius:14px;background:linear-gradient(var(--ok-bg),var(--surface) 90px)}
+.modal.wide{width:min(860px,100%);max-height:92vh;overflow:auto} .print-only{display:none}
+@media (max-width:700px){.ev{grid-template-columns:64px minmax(0,1fr)}.ev-i{display:none}.ev-r{grid-column:2;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;text-align:left}.ev-t b{font-size:17px}}
+@media print{body>*:not(#modal){display:none!important}#modal .modal-bg{position:static;background:none;padding:0;display:block}#modal .modal{box-shadow:none;width:100%;max-height:none;padding:0}.no-print{display:none!important}.print-only{display:block;margin-bottom:6px}.ev,.itinerary{break-inside:avoid}}
+
+.meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:12.5px;color:var(--muted);margin-top:6px}
+.when-line{margin-top:2px}
