@@ -17,7 +17,6 @@ import argparse
 import os
 import shutil
 import subprocess
-import sys
 import time
 from datetime import date, timedelta
 
@@ -134,6 +133,10 @@ with sync_playwright() as p:
 
     # ---------------------------------------------------------------- 2. employee plans a trip
     go(page, "rahul")
+    page.wait_for_selector("#h-list", timeout=30000)
+    wait(page, 1500)
+    if page.locator("#trip-form:not([hidden])").count() == 0:      # an employee who already has trips opens the form with the button
+        click(page, "[data-act=newtrip]")
     page.wait_for_selector("#trip-form:not([hidden])", timeout=30000)
     cap(page, "Rahul, an employee, plans a trip: real dates, round trip, purpose and cost centre", "Employee workspace: the trip form opens by itself the first time")
     click(page, "#t-to")
