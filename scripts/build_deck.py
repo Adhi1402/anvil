@@ -1,6 +1,6 @@
 """Fills the AI Builder Cup submission template with Anvil's content (editable shapes and tables, real screenshots).
   python scripts/build_deck.py "C:/Users/<you>/Downloads/Submission Template _ AI Builder Cup.pptx"
-Output: submission/Anvil - AI Builder Cup Submission.pptx   (needs: pip install python-pptx; screenshots from scripts/record_demo.py)"""
+Output: submission/Anvil - AI Builder Cup Submission v2.pptx (or the path you pass as the second argument)   (needs: pip install python-pptx; screenshots from scripts/record_demo.py)"""
 import copy
 import os
 import sys
@@ -15,8 +15,8 @@ from lxml import etree
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\ADHISH SEKAR\Downloads\Submission Template _ AI Builder Cup.pptx"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SHOTS = os.path.join(ROOT, "demo_recording", "screenshots")
-OUT = os.path.join(ROOT, "submission", "Anvil - AI Builder Cup Submission.pptx")
+SHOTS = os.path.join(ROOT, "demo_recording_v2", "screenshots")
+OUT = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, "submission", "Anvil - AI Builder Cup Submission v2.pptx")
 os.makedirs(os.path.dirname(OUT), exist_ok=True)
 
 ACC, INK, MUTE, LINE = RGBColor(0x34, 0x51, 0xD1), RGBColor(0x10, 0x18, 0x28), RGBColor(0x66, 0x70, 0x85), RGBColor(0xD0, 0xD5, 0xDD)
@@ -178,13 +178,20 @@ for p in tfx.paragraphs:
 
 # ------------------------------------------------------------------ slide 3: brief
 s = S[2]
-tb(s, 0.3, 1.2, 9.4, 0.4, [("Anvil: a mandate enforcement layer for autonomous business spending", {"bold": True, "size": 15, "color": ACC})])
-tb(s, 0.3, 1.62, 9.4, 1.75, [
-    ("Anvil is the control layer between AI agents and company money. Finance signs a policy: limits, approved cities, notice and trip rules. When an employee plans a trip, a Gemini booking agent compares real offers over the A2A protocol, and Anvil audits every booking against the signed policy before any money moves: approve, send to a person, or block. A blocked agent is told exactly why and corrects itself. Approved bookings get a signed receipt verified with Google's AP2 SDK, every Gemini call is traced with its input and output, and every decision is written to a tamper-evident log.", {"size": 11.5}),
-    ("It starts with travel and expense. The same engine governs software licences, procurement and cloud spend.", {"size": 11.5, "color": MUTE})], gap=6)
+tb(s, 0.3, 1.18, 9.4, 0.4, [("Anvil: the policy-enforcement engine for AI agents that spend company money", {"bold": True, "size": 15, "color": ACC})])
+tb(s, 0.3, 1.6, 5.95, 2.2, [
+    ("AI agents are starting to act for the enterprise: booking travel, renewing software, buying cloud. Anvil is the engine that makes that safe. A person signs a mandate. For every action an agent proposes, Anvil checks it against the intent of that mandate with Gemini, enforces the hard limits in code (rules and Google's AP2 SDK), sends borderline cases to a person, blocks the rest, lets the agent correct itself, and records everything in a tamper-evident log.", {"size": 11}),
+    ("The engine is domain-neutral. Our enterprise example is business trip booking; the same engine already governs software purchases.", {"size": 11, "bold": True, "color": ACC})], gap=6)
+box(s, 6.45, 1.62, 3.25, 2.15, fill=GREY, line=LINE, anchor=MSO_ANCHOR.TOP, align=PP_ALIGN.LEFT, radius=0.05, text=[
+    ("Built for how enterprises work", {"bold": True, "size": 11, "color": ACC, "space": 4}),
+    ("Finance-owned, signed policy with version history", {"bullet": True, "size": 10.5, "space": 5}),
+    ("Approvals with separation of duties", {"bullet": True, "size": 10.5, "space": 5}),
+    ("Cost centres, spend views, activity export", {"bullet": True, "size": 10.5, "space": 5}),
+    ("Audit evidence and a trace of every AI call", {"bullet": True, "size": 10.5, "space": 5}),
+    ("Kill switch and emergency stop", {"bullet": True, "size": 10.5, "space": 5})])
 for i, (t, sub) in enumerate([("Judges intent", "Gemini reads what a person actually approved, not just prices"), ("Enforces in code", "The verdict is applied outside the model, so text can never override it"), ("Proves every decision", "Signed receipts, AP2 chains, hash-chained log, full AI traces")]):
-    box(s, 0.3 + i * 3.17, 3.5, 3.05, 0.78, fill=SOFT, line=ACC, text=[(t, {"bold": True, "size": 12, "color": ACC}), (sub, {"size": 9.5, "color": INK})])
-box(s, 0.3, 4.45, 9.4, 0.5, fill=ACC, text=[("Measured live: 19 of 19 violations caught vs 10 of 19 for a rules-only check, with 0 false blocks. A second domain (software purchases) scored 8 of 8.", {"bold": True, "size": 11, "color": WHITE})])
+    box(s, 0.3 + i * 3.17, 3.9, 3.05, 0.78, fill=SOFT, line=ACC, text=[(t, {"bold": True, "size": 12, "color": ACC}), (sub, {"size": 9.5, "color": INK})])
+box(s, 0.3, 4.78, 9.4, 0.42, fill=ACC, text=[("Measured live: 19 of 19 violations caught vs 10 of 19 for a rules-only check, with 0 false blocks. Second domain (software): 8 of 8.", {"bold": True, "size": 10.5, "color": WHITE})])
 
 # ------------------------------------------------------------------ slide 4: opportunities
 s = S[3]
@@ -202,18 +209,19 @@ table(s, 0.3, 1.25, 9.4, [1.9, 2.9, 4.6], [
     ["LLM guardrails", "Harmful or off-topic text", "Whether a purchase matches one specific signed authorization"],
     ["Google AP2 on its own", "Who authorized a payment, amount and payee limits", "Semantic drift: a $590 business-class fare at an approved price passes its limits"],
     ["Anvil", "Intent vs a signed policy, AP2 limits as a second gate, self-correction", "Prototype executor is simulated"]], size=9, rowh=0.3)
-tb(s, 0.3, 3.02, 4.6, 2.2, [("How it solves the problem", {"bold": True, "size": 11, "color": ACC, "space": 3}),
+tb(s, 0.3, 3.0, 4.6, 2.3, [("Why now, and how it solves it", {"bold": True, "size": 11, "color": ACC, "space": 3}),
+    ("Agents moved from suggesting to acting. Payment (AP2) and agent-to-agent (A2A) protocols now exist. What is missing is proof an action matched what a person approved.", {"italic": True, "color": MUTE, "space": 4}),
     ("Finance signs the rules; a person approves anything beyond them.", {"bullet": True}),
-    ("Gemini audits every booking's intent: approve, escalate or block.", {"bullet": True}),
-    ("Code enforces the verdict. Only approved or human-approved bookings get a receipt.", {"bullet": True}),
+    ("Gemini audits intent; code enforces approve, escalate or block.", {"bullet": True}),
     ("A blocked agent is told why, corrects itself, and is audited again.", {"bullet": True}),
-    ("Every decision and every Gemini call is recorded and can be re-verified.", {"bullet": True})], size=10)
-tb(s, 5.1, 3.02, 4.6, 2.2, [("What is unique (USP)", {"bold": True, "size": 11, "color": ACC, "space": 3}),
+    ("Every decision and every Gemini call is recorded and re-verifiable.", {"bullet": True})], size=9.5)
+tb(s, 5.1, 3.0, 4.6, 2.3, [("What is unique (USP)", {"bold": True, "size": 11, "color": ACC, "space": 3}),
     ("Semantic drift detection against a signed policy: 19/19 vs 10/19, no false blocks.", {"bullet": True}),
     ("Closed loop: block, explain, self-correct, re-audit.", {"bullet": True}),
     ("Two independent Google gates: Gemini for judgment, the AP2 SDK for limits.", {"bullet": True}),
     ("It shows its work: every offer considered, the agent's reasoning, the exact AI input and output.", {"bullet": True}),
-    ("Measured, not asserted: 26 travel and 12 software scenarios, 6 adversarial.", {"bullet": True})], size=10)
+    ("A domain-neutral engine: travel live, software proven on the same engine.", {"bullet": True}),
+    ("Measured, not asserted: 26 travel and 12 software scenarios, 6 adversarial.", {"bullet": True})], size=9.5)
 
 # ------------------------------------------------------------------ slide 5: features
 s = S[4]
@@ -227,6 +235,7 @@ for i, (h, items) in enumerate(cols):
 
 # ------------------------------------------------------------------ slide 6: process flow
 s = S[5]
+tb(s, 0.3, 1.02, 9.4, 0.25, [("The engine flow is domain-neutral; shown here with the enterprise example, business trip booking", {"size": 9.5, "italic": True, "color": MUTE})])
 steps = ["1  Finance signs the policy", "2  Employee plans a trip", "3  Supplier agents return offers (A2A)", "4  Gemini agent picks one offer per leg", "5  Anvil audits each booking"]
 for i, t in enumerate(steps):
     x = 0.25 + i * 1.95
@@ -299,9 +308,9 @@ tb(s, 0.3, 4.5, 9.4, 0.5, [("Estimates from list prices, not billing data. A pro
 
 # ------------------------------------------------------------------ slide 11: snapshots
 s = S[10]
-shots = [("04_guard_done.png", "Live Anvil Guard: offers, pick, audit"), ("08_trip_approved.png", "Final itinerary with booking refs"),
+shots = [("04_guard_done.png", "Business class blocked, agent corrected"), ("08_trip_approved.png", "Final itinerary with booking refs"),
          ("07_approval.png", "Finance approves a whole trip"), ("12_ai_trace.png", "AI traces: exact Gemini input and output"),
-         ("10_policy_history.png", "Editable, versioned, signed policy"), ("15_protected_block.png", "Blocked, self-corrected, re-audited")]
+         ("15_protected_block.png", "Unprotected vs protected contrast"), ("16_second_domain.png", "Same engine, second domain: software")]
 for i, (f, cap) in enumerate(shots):
     x, y = 0.3 + (i % 3) * 3.17, 1.2 + (i // 3) * 2.0
     p = pic(s, f, x, y, w=3.05)
@@ -353,17 +362,27 @@ tb(s, 0.3, 2.85, 9.4, 2.2, [("How to try it (about two minutes)", {"bold": True,
     ("The first request after a quiet period can take 10 to 20 seconds.", {"bullet": True, "color": MUTE}),
     ("Built on Firebase Hosting, Firestore, Cloud Run and Gemini (Vertex AI). Sign-in is a labelled demo; the spending executor is simulated.", {"bullet": True, "color": MUTE})], size=10.5, gap=4)
 
-# ------------------------------------------------------------------ slide 15 (blank in the template): the demo in one picture
+# ------------------------------------------------------------------ slide 15 (spare in the template): one engine, any domain
 s = S[14]
-tb(s, 0.3, 0.72, 9.4, 0.5, [("Three people, one governed workflow", {"size": 20})])
-rows = [("Rahul, employee", "Plans a trip: dates, round trip, cost centre. Anvil Guard compares offers; a Gemini agent books; every booking is audited. He gets a day-by-day itinerary."),
-        ("Adhish, finance manager", "Approves or rejects a whole trip that went beyond policy. Edits and signs the policy. Cannot approve his own requests."),
-        ("Swathy, platform operator", "Runs the agents: pauses one, reads the AI traces and the tamper-evident audit trail. Cannot release money or change limits.")]
-for i, (h, t) in enumerate(rows):
-    y = 1.4 + i * 1.18
-    box(s, 0.3, y, 2.4, 1.0, fill=ACC, text=h, size=12, bold=True, color=WHITE)
-    box(s, 2.8, y, 6.9, 1.0, fill=GREY, text=t, size=11, align=PP_ALIGN.LEFT)
-box(s, 0.3, 4.95 - 0.02, 9.4, 0.3, fill=WHITE, text="Anvil never lets text, a note or an agent's claim approve spending: only the signed policy and a person's decision do.", size=10, bold=True, color=ACC)
+tb(s, 0.3, 0.72, 9.4, 0.5, [("One engine, any domain", {"size": 20})])
+stages = [("Signed mandate", "what a person approved"), ("Intent audit", "Gemini judges the meaning"), ("Enforce in code", "rules + AP2: approve, escalate, block"), ("Prove", "receipts, hash chain, AI traces")]
+for i, (h, t) in enumerate(stages):
+    x = 0.3 + i * 2.42
+    box(s, x, 1.25, 2.15, 0.78, fill=SOFT, line=ACC, text=[(h, {"bold": True, "size": 11.5, "color": ACC}), (t, {"size": 9})])
+    if i < 3:
+        arrow(s, x + 2.15, 1.64, x + 2.42, 1.64)
+tb(s, 0.3, 2.12, 9.4, 0.25, [("Domains plug into the same engine", {"bold": True, "size": 10.5, "color": INK})])
+doms = [("Enterprise travel and expense", "LIVE: this prototype", OKBG, OKC, False), ("Software licences", "Proven: 8 of 8 caught (rules-only 6 of 8)", SOFT, ACC, False), ("Procurement and vendor payments", "Next", GREY, MUTE, True), ("Cloud spend (FinOps)", "Next", GREY, MUTE, True), ("Payments and payroll", "Next", GREY, MUTE, True)]
+for i, (h, t, bg, fg, dashed) in enumerate(doms):
+    x = 0.3 + i * 1.905
+    sh = box(s, x, 2.4, 1.78, 0.9, fill=bg, line=fg, text=[(h, {"bold": True, "size": 9.5, "color": fg if not dashed else INK}), (t, {"size": 8.5, "color": INK})])
+    if dashed:
+        sh.line.dash_style = 4
+tb(s, 0.3, 3.4, 9.4, 0.25, [("What a new domain needs: configuration and tests, not new infrastructure", {"bold": True, "size": 10.5, "color": INK})])
+reqs = [("Mandate fields", "e.g. approved vendors, annual cap, seats"), ("Action types", "e.g. buy_license, pay_invoice"), ("A few deterministic checks", "limits and lists enforced in code"), ("Scenarios to measure it", "a labelled set, scored against a rules-only baseline")]
+for i, (h, t) in enumerate(reqs):
+    box(s, 0.3 + i * 2.37, 3.68, 2.25, 0.78, fill=GREY, line=LINE, text=[(h, {"bold": True, "size": 10}), (t, {"size": 8.5, "color": MUTE})])
+box(s, 0.3, 4.6, 9.4, 0.5, fill=ACC, text=[("Any agent, in any system, asks first: POST /v1/authorize returns allow, escalate or block, with a signed receipt and an AP2 chain.", {"bold": True, "size": 10.5, "color": WHITE})])
 
 # ------------------------------------------------------------------ remove the instruction slide (2)
 ids = prs.slides._sldIdLst
