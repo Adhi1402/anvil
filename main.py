@@ -154,6 +154,7 @@ def run_stream(intent, proposals, request_text=None, requester=None, origin="use
     yield _ev("run_start", request=request_text, legs=len(proposals), controls=controls, enforce=enforce, requester=meta.get("requester"))
     if not enforce:
         for action, rationale, _ in proposals:
+            action.pop("considered", None)
             kind = action["type"].replace("book_", "")
             yield _ev("proposal", kind=kind, action=action, rationale=rationale)
             cf = counterfactual(mandate, action, "UNCHECKED")
@@ -167,6 +168,8 @@ def run_stream(intent, proposals, request_text=None, requester=None, origin="use
         yield _ev("run_done", bypass=True)
         return
     for action, rationale, a_tele in proposals:
+        considered = action.pop("considered", None)                # what the agent weighed is recorded on the entry, not audited as part of the action
+        leg_meta = {**meta, **({"considered": considered} if considered else {}), **({"rationale": rationale} if rationale and not str(rationale).startswith("scripted") else {})}
         kind = action["type"].replace("book_", "")
         yield _ev("proposal", kind=kind, action=action, rationale=rationale)
         pending_tele = a_tele
@@ -179,7 +182,7 @@ def run_stream(intent, proposals, request_text=None, requester=None, origin="use
             step = {"action": g["action"], "audit": g["audit"], **({"correction_attempt": g["attempt"]} if g["attempt"] else {})}
             agent_tele = g.get("replan_telemetry") or pending_tele
             pending_tele = None
-            _log_steps(intent, [step], agent_tele, meta)
+            _log_steps(intent, [step], agent_tele, leg_meta)
             yield _ev("step", kind=kind, step=step, agent_cost_usd=(agent_tele or {}).get("cost_usd", 0))
     yield _ev("run_done")
 
@@ -234,7 +237,7 @@ def stream_request():
         yield _ev("agent_start", request=text, trip=trip)
         gathered = planner.gather_offers(mandate, trip)
         for lid, g in gathered["legs"].items():
-            yield _ev("discovered", kind=g["kind"], leg=lid, agent=g["card"], via=g["via"], offers=len(g["offers"]))
+            yield _ev("discovered", kind=g["kind"], leg=lid, agent=g["card"], via=g["via"], offers=len(g["offers"]), options=planner.considered(mandate, g))
         yield _ev("planning")
         try:
             plan, meta = planner.choose(mandate, text, gathered)

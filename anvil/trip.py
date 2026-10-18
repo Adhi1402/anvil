@@ -11,11 +11,16 @@ POLICY = {"min_advance_days": 7, "max_trip_days": 14}
 # limits, refundability, class and supplier rules still apply to every booking. (A real deployment holds this list per grade.)
 CITIES = ["Mumbai", "Delhi", "Bengaluru", "Chennai", "Hyderabad", "Pune", "Kolkata", "Ahmedabad", "Jaipur", "Goa", "Dubai", "Singapore"]
 ORIGINS = DESTINATIONS = CITIES
+AIRPORTS = {"Mumbai": ("BOM", "Chhatrapati Shivaji Intl (BOM)"), "Delhi": ("DEL", "Indira Gandhi Intl (DEL)"), "Bengaluru": ("BLR", "Kempegowda Intl (BLR)"),
+            "Chennai": ("MAA", "Chennai Intl (MAA)"), "Hyderabad": ("HYD", "Rajiv Gandhi Intl (HYD)"), "Pune": ("PNQ", "Pune Airport (PNQ)"),
+            "Kolkata": ("CCU", "Netaji Subhas Chandra Bose Intl (CCU)"), "Ahmedabad": ("AMD", "Sardar Vallabhbhai Patel Intl (AMD)"), "Jaipur": ("JAI", "Jaipur Intl (JAI)"),
+            "Goa": ("GOI", "Dabolim Airport (GOI)"), "Dubai": ("DXB", "Dubai Intl (DXB)"), "Singapore": ("SIN", "Changi Airport (SIN)")}
 PURPOSES = ["Client meeting", "Conference or event", "Training", "Internal / team offsite", "Recruiting", "Other"]
 COST_CENTERS = {"CC-1042": "Sales, APAC", "CC-2210": "Engineering, Platform", "CC-3105": "Customer Success", "CC-4001": "Leadership"}
 PREFS = ("morning", "afternoon", "evening", "any")
 # Fields a trip adds to an action. The auditor never sees them; the trip gate and the UI do.
-SCHEDULE_KEYS = ("leg", "trip", "flight_no", "from_city", "to_city", "route", "depart", "arrive", "check_in", "check_out", "nights", "total", "pickup")
+SCHEDULE_KEYS = ("leg", "trip", "flight_no", "from_city", "to_city", "from_code", "to_code", "from_place", "to_place", "route", "depart", "arrive",
+                 "check_in", "check_out", "nights", "total", "pickup", "considered")
 LEG_ORDER = ["flight_out", "transfer_out", "hotel", "transfer_back", "flight_back"]
 LEG_LABEL = {"flight_out": "Outbound flight", "transfer_out": "Airport to hotel", "hotel": "Hotel",
              "transfer_back": "Hotel to airport", "flight_back": "Return flight"}

@@ -154,7 +154,10 @@ check("revoked mandate: no correction attempted", not any(e["event"] == "correct
 c.post("/api/control", json={"action": "restore"})
 check("controls are written to the chain", sum(1 for d in fake_db.collection("provenance").stream() if d.to_dict()["verdict"] == "CONTROL") == 4)
 check("chain still verifies after controls", c.get("/api/verify").get_json()["chain_ok"] is True)
+import time as _t
+_t.sleep(0.05)                                   # Windows clocks tick coarsely: let the session start strictly after the last entry
 c.post("/api/control", json={"action": "new_session"})
+_t.sleep(0.05)
 mt2 = c.get("/api/metrics").get_json()
 check("new session: metrics restart from zero, history kept", mt2["totals"]["actions"] == 0 and len(list(fake_db.collection("provenance").stream())) > 10)
 stream("/stream/scenario", {"name": "trip"})
@@ -389,6 +392,18 @@ check("trip options: cities, purposes, cost centres and the rules", "Bengaluru" 
 a2 = c.post("/v1/authorize", json={"action": {"type": "book_hotel", "vendor": "Taj", "price": 280, "refundable": True, "nights": 2, "check_in": D(30), "check_out": D(32), "hack": 1},
                                   "requester": "Rahul"}).get_json()
 check("authorize: schedule fields pass through, unknown keys do not", a2["steps"][0]["action"].get("nights") == 2 and "hack" not in a2["steps"][0]["action"] and a2["cart_mandate"]["total"] == 560)
+
+# --- the options each agent weighed are recorded on the entry, never audited as part of the action
+fake_db.collection("provenance").docs.clear()
+code, evs = stream("/stream/request", {"text": "Round trip, cheapest compliant.", "requester": "Rahul", "trip": RT})
+disc = [e for e in evs if e["event"] == "discovered"]
+check("options: each leg streams the candidates with Anvil's policy pre-check", len(disc) == 5 and all(e["options"] and {"level", "notes", "price"} <= set(e["options"][0]) for e in disc), disc[:1])
+check("options: a business-class or over-cap candidate is marked, a compliant one is ok", {o["level"] for e in disc for o in e["options"]} >= {"ok", "blocked"} and any(o["level"] == "ok" for o in disc[0]["options"]))
+check("options: the action the auditor sees carries no candidate list", all("considered" not in (e["action"] if e["event"] == "proposal" else e["step"]["action"]) for e in evs if e["event"] in ("proposal", "step")))
+ents = [d.to_dict() for d in fake_db.collection("provenance").stream()]
+check("options: every entry records what was considered and why the agent chose", len(ents) == 5 and all(e.get("considered") and e.get("rationale") for e in ents), [list(e) for e in ents][:1])
+fl = next(e for e in ents if e["action"]["leg"] == "flight_out")
+check("routes: flights carry airport codes and transfers say where from and to", fl["action"]["from_code"] == "BLR" and fl["action"]["to_code"] == "BOM" and next(e for e in ents if e["action"]["leg"] == "transfer_out")["action"]["to_place"].endswith("Mumbai"))
 
 # --- tampered intent must stop /run
 from data.store import get_mandate

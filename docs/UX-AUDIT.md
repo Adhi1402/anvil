@@ -73,3 +73,11 @@ The first pass fixed *who sees what*. The second pass asked a harder question: d
 - **Schedules are mock supplier data** with fixed times of day; dates are real, flight inventory is not. Times are shown as local airport times.
 - **Cancelling or changing an approved trip** is not modelled.
 - Sign-in is still the labelled demo (see the first-round limits above).
+
+## Round 3: make the idea visible (2026-10-18)
+The product did the checking but hid it. Now it shows its work.
+- **Options considered.** Every booking records every offer the supplier returned, Anvil's policy pre-check of each (fits, needs approval, not allowed, with the reason), the agent's own reasoning, and which one it chose. "See the N options considered" opens them as cards; the approver sees them automatically, plus a callout when a compliant option existed and the agent chose another ("so Anvil sent it to a person").
+- **Where things go.** Flights draw an animated route with airport codes, times, duration, class and refundability. Airport transfers say from where to where (airport to the chosen hotel and back) with a moving car. Hotels show the stay as moons per night.
+- **Journey ribbon and Anvil band.** Each trip has a coloured journey ribbon (flight, transfer, hotel, transfer, flight) and a band: "Anvil checked 5 bookings before any money moved: 20 offers compared, 8 outside policy, 4 signed receipts, recorded in a tamper-evident chain #hash".
+- **Live Anvil Guard feed.** While a trip is booked, each leg shows its candidate prices popping in, the agent's pick lifting out, a scan sweep while Gemini audits, and the verdict stamp.
+- **Dynamic and 3D.** 3D tilt on cards and option tiles, a rotating 3D cube (signed mandate, Gemini audit, enforce, prove) with floating MATCH/REVIEW/DRIFT chips on the sign-in page, an Anvil Guard hero with count-up numbers on the operator Overview. All motion respects reduced-motion settings.

@@ -62,9 +62,37 @@ def gather_offers(mandate, trip=None):
     return {"trip": trip, "legs": legs}
 
 
-def _decorate(action, spec, trip, chosen):
+_KEEP = ("vendor", "price", "class", "refundable", "flight_no", "depart", "arrive", "from_city", "to_city", "nights", "total", "route")
+
+
+def _check(mandate, spec, offer):
+    """Anvil's pre-check of one candidate against the signed policy, with the same deterministic rules used for the receipts."""
+    from anvil.impact import findings
+    notes = findings(mandate, {**offer, "type": f"book_{spec['kind']}", "supplier": spec["supplier"], "destination": mandate["destination"]})
+    hard = any(k in n for n in notes for k in ("not approved", "class instead"))
+    return {**{k: offer[k] for k in _KEEP if k in offer}, "level": "blocked" if hard else "approval" if notes else "ok", "notes": notes}
+
+
+def considered(mandate, spec):
+    """Every offer a supplier returned for this leg, each with whether the policy would take it as it stands."""
+    return [_check(mandate, spec, o) for o in spec["offers"]]
+
+
+def _decorate(action, spec, trip, chosen, mandate=None):
     """Attach the trip context to a chosen offer; an airport transfer is timed from the flight it connects to."""
     action = {"leg": spec["id"], "trip": T.compact(trip), **action}
+    ap = T.AIRPORTS
+    if spec["kind"] == "flight":
+        back = spec["id"] == "flight_back"
+        a, b = ap.get(trip["destination"] if back else trip["origin"], ("", "")), ap.get(trip["origin"] if back else trip["destination"], ("", ""))
+        action["from_code"], action["to_code"] = a[0], b[0]
+    if spec["kind"] == "transport":
+        airport = ap.get(trip["destination"], ("", trip["destination"] + " airport"))[1]
+        hotel = (chosen.get("hotel") or {}).get("vendor")
+        place = f"{hotel}, {trip['destination']}" if hotel else f"{trip['destination']} city centre"
+        action["from_place"], action["to_place"] = (airport, place) if spec["id"] == "transfer_out" else (place, airport)
+    if mandate is not None:
+        action["considered"] = considered(mandate, spec)
     if spec["id"] == "transfer_out" and chosen.get("flight_out") and chosen["flight_out"].get("arrive"):
         action["pickup"] = (datetime.fromisoformat(chosen["flight_out"]["arrive"]) + timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M")
     if spec["id"] == "transfer_back" and chosen.get("flight_back") and chosen["flight_back"].get("depart"):
@@ -72,14 +100,14 @@ def _decorate(action, spec, trip, chosen):
     return action
 
 
-def _assemble(gathered, picks):
+def _assemble(gathered, picks, mandate=None):
     """picks: {leg_id: (offer, rationale)} -> [(action, rationale)] in the order the traveller experiences the trip."""
     trip, chosen = gathered["trip"], {k: v[0] for k, v in picks.items()}
     out = []
     for lid in T.LEG_ORDER:
         if lid in picks:
             spec = gathered["legs"][lid]
-            out.append((_decorate({"type": f"book_{spec['kind']}", "supplier": spec["supplier"], **picks[lid][0]}, spec, trip, chosen), picks[lid][1]))
+            out.append((_decorate({"type": f"book_{spec['kind']}", "supplier": spec["supplier"], **picks[lid][0]}, spec, trip, chosen, mandate), picks[lid][1]))
     return out
 
 
@@ -100,7 +128,7 @@ def choose(mandate, request_text, gathered):
             picks[leg["leg"]] = (g["offers"][leg["choice"]], leg["rationale"])
     if set(picks) != set(gathered["legs"]):
         raise ValueError("planner did not choose one offer per leg")
-    return _assemble(gathered, picks), meta
+    return _assemble(gathered, picks, mandate), meta
 
 
 def fallback(mandate, gathered=None):
@@ -119,4 +147,4 @@ def fallback(mandate, gathered=None):
         if not pool:
             raise ValueError(f"no offers for {lid}")
         picks[lid] = (sorted(pool, key=lambda o: o["price"])[0], "scripted fallback planner (Gemini unavailable)")
-    return _assemble(gathered, picks)
+    return _assemble(gathered, picks, mandate)

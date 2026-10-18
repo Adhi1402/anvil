@@ -133,7 +133,7 @@ with sync_playwright() as p:
     plan(a, D(4), D(6), "Urgent supplier visit", wait_for="Sent for approval")
     a.click("[data-act=closeform]")
     a.evaluate("location.hash='#/approvals'"); a.click("[data-tab=wait]")
-    a.wait_for_selector("#a-list .item")
+    a.wait_for_selector("#a-list .item:has-text('Urgent supplier visit')", timeout=20000)
     own = a.locator("#a-list .item", has_text="Urgent supplier visit")
     check("a manager cannot approve their own trip", own.count() == 1 and own.first.get_by_role("button", name="Approve").is_disabled() and "own request" in own.first.inner_text())
     a.evaluate("location.hash='#/home'")
