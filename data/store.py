@@ -1,5 +1,5 @@
 """Firestore access: mandates + provenance (append-only audit log)."""
-import os, json, hmac, hashlib, time, uuid
+import os, json, hmac, hashlib, threading, time, uuid
 from datetime import datetime, timezone
 from google.cloud import firestore
 
@@ -124,6 +124,9 @@ def _latest_hash():
     return max(tips, key=lambda e: e["ts"])["hash"]
 
 
+_append_lock = threading.Lock()
+
+
 def _tip_ref():
     return db().collection("meta").document("chain_tip")
 
@@ -156,7 +159,15 @@ def _append(build):
         txn.set(_tip_ref(), {"hash": entry["hash"], "ts": entry["ts"]})
         return new_ref.id
 
-    return _run_txn(work)
+    # Serialise appends inside one instance so a burst of runs queues here (cheap) instead of piling up Firestore
+    # transaction retries on the single tip document. The timeout means a stuck holder can never block the app:
+    # past it we simply proceed and let the transaction itself guarantee correctness.
+    got = _append_lock.acquire(timeout=20)
+    try:
+        return _run_txn(work)
+    finally:
+        if got:
+            _append_lock.release()
 
 
 def sim_lease(min_gap_s, daily_cap, now=None):
