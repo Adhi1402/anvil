@@ -1,0 +1,1 @@
+Blocked, with the reason. The agent corrects itself, and the new booking is audited again.

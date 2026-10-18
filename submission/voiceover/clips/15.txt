@@ -1,0 +1,1 @@
+AI traces: every call to Gemini, with the exact input it was given and the exact output it returned, plus time, tokens and cost.

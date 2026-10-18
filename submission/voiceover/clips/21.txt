@@ -1,0 +1,1 @@
+Built on Google Cloud: Firebase Hosting, Cloud Run, Gemini, Firestore, A to A and A P 2. Anvil: signed policy, intent judged by Gemini, code enforcing it, every decision proven.

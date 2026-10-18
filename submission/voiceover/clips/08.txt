@@ -1,0 +1,1 @@
+Anvil shows its work: every offer the agent considered, whether the policy allows it, and the agent's own reasoning.

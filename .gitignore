@@ -10,3 +10,5 @@ node_modules/
 demo_recording/
 submission/*.mp4
 demo_recording*/
+submission/voiceover/*.mp4
+submission/~$*

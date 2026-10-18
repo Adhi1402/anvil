@@ -1,0 +1,1 @@
+Our example is enterprise trip booking, with three roles: employee, finance manager, and platform operator.

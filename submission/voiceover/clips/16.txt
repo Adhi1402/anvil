@@ -1,0 +1,1 @@
+Decisions are hash-chained. Edit history, and the break shows.

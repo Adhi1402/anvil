@@ -29,49 +29,27 @@ Re-record v2 any time: `python scripts/record_demo_v2.py https://dazzling-lodge-
 
 Not shown on screen (covered by the tests; judges can try them live): a finance manager **rejecting** a request, an employee **withdrawing** one, being refused for approving your own request. Say so in the voice-over if you like.
 
-## Step 1: Practise (10 minutes)
-Play `demo_recording_v2/anvil-demo.mp4` and read the narration below out loud at each time. Each line is sized to the seconds shown (about 2.3 words per second). Do it twice, slowly.
+## Voice-over with your own cloned voice (MiniMax): exact steps
+Everything is cut to the second. The script is `submission/voiceover/NARRATION-SCRIPT.md`, and each of the 21 clips is also a separate text file in `submission/voiceover/clips/` (`01.txt` ... `21.txt`). Each clip starts at a measured moment of `demo_recording_v2/anvil-demo.mp4` and fits its window at a calm pace.
 
-## Step 2: Record your voice (Windows 11, free)
-1. Quiet room; phone or laptop microphone a hand-width from your mouth; close other apps.
-2. Open **Clipchamp** (built into Windows 11: Start key, type "Clipchamp").
-3. **Create a new video** > **Import media** > choose `anvil-demo.mp4` > drag it to the timeline.
-4. **Record & create** > **Audio recording** > choose your microphone. Press record, play the video, read the narration. You may record in pieces and drag each clip under its second. Re-record any piece you dislike.
-5. Optional: switch on **Noise suppression** and **Auto-adjust volume**.
-6. Check the total is **under 4:00** (it is 3:30). If a line runs long, speak a little faster rather than adding time.
-7. **Export** at **1080p** (MP4).
+1. **Clone your voice** on minimax.io with a clean sample of your own voice (quiet room, one speaker, no music; follow MiniMax's sample instructions on the site). Only clone your own voice.
+2. **Generate the 21 clips.** For each clip, paste the text of `NN.txt` into MiniMax text-to-speech with your cloned voice, language English, speed 1.0, neutral emotion, then download as MP3. Name the files exactly `01.mp3`, `02.mp3` ... `21.mp3` and put them in one folder, for example `C:oice`.
+   - Keep the spelling as written ("A to A", "A P 2"): it makes the voice say the acronyms correctly.
+   - Generate each clip separately. Do not merge them: the timing depends on each clip starting at its own second.
+3. **Put the voice on the video** (one command, no editing skills needed):
+   `python scripts/assemble_voiceover.py C:oice`
+   It places every clip at its exact time, writes `submission/voiceover/anvil-demo-with-voice.mp4`, and prints a table: if a clip is longer than its window it is sped up slightly (never more than 1.2x) and marked "tight"; if it cannot fit it says PROBLEM and which clip to shorten or regenerate a little faster.
+4. **Watch it once.** If a line sounds rushed, regenerate that clip (speed 0.95) or edit its text file to be a few words shorter, then run step 3 again. Final length is about 3:36 (the last line is allowed to run a few seconds past the last frame, which is held).
+5. Upload to YouTube as **Unlisted** (below). Title: `Anvil: the policy-enforcement engine for AI agents that spend money (AI Builder Cup)`.
 
-(A computer-generated voice is possible with Google Cloud Text-to-Speech, but your own voice is more convincing, and Google's "use my voice" cloning is a restricted feature that needs Google's approval and a recorded consent, so it is not an option here.)
+`submission/voiceover/PREVIEW-robot-voice-timing-check.mp4` is the same video with a plain computer voice, only to show the timing; do not submit it.
 
-## Step 3: Upload and get the link
-1. YouTube > **Create** > **Upload video**. Title: `Anvil: the policy-enforcement engine for AI agents that spend money (AI Builder Cup)`.
+If you re-record the screen video, run `python scripts/align_timeline.py <folder>` and `python scripts/build_narration.py <folder>` again: the script is re-cut to the new timing automatically (and it refuses to build if a line no longer fits).
+
+## Upload and get the link
+1. YouTube > **Create** > **Upload video**.
 2. Visibility **Unlisted** (anyone with the link can watch). Not Private: the judges could not open it.
 3. Paste the link on **slide 13** of the deck (red text) and into the submission form. Open it in a private window to check it plays.
-
-## Narration for demo_recording_v2 (read at the times shown)
-| Time | Say |
-|---|---|
-| 0:00 | "AI agents are starting to spend company money. But nothing proves an agent stayed inside what a person approved. Budget caps only see numbers: they miss a class swap, a split charge, a hidden add-on, or a note that says the CFO pre-approved it." |
-| 0:11 | "Anvil is the engine that fixes this. A person signs a mandate. Gemini judges every action against the intent of that mandate. Code enforces the verdict, with Google's AP2 limits as a second gate. And everything is provable. It is domain-neutral: travel is live today, software purchases are proven, and procurement, cloud spend and payments plug into the same engine." |
-| 0:25 | "Our enterprise example is business trip booking, with three roles: an employee, a finance manager, and the platform operator who runs the AI agents." |
-| 0:35 | "Rahul plans a trip to Goa. Real dates, round trip, purpose, cost centre. He also asks the booking agent for business class on Emirates. And the form already warns him: leaving in three days breaks the seven-day notice rule." |
-| 0:45 | "He sends it. Anvil Guard compares every offer from the supplier agents, which the booking agent reaches over the A2A protocol. Gemini picks one per leg, and Anvil audits every booking before any money moves. This takes a while, so it is sped up." |
-| 1:07 | "The agent went for business class. Anvil blocked it, told the agent exactly why, and the agent chose a compliant flight. And since the trip is late, everything now waits for finance." |
-| 1:14 | "Here is the itinerary, day by day: flights with times, cabs with pickup and where from and to, and the hotel. Nothing is booked until finance approves." |
-| 1:19 | "Anvil shows its work: every offer the agent considered, whether the policy allows it, and the agent's own reasoning." |
-| 1:30 | "Adhish is the finance manager. One card for the whole trip, with dates, purpose, cost centre, and exactly why it needs him." |
-| 1:37 | "One click approves it. He cannot approve his own requests, and the people who run the agents cannot approve at all." |
-| 1:48 | "Back with Rahul: approved, with a signed booking reference on every item, and who approved it." |
-| 1:56 | "Finance owns the policy: limits, approved cities and trip rules are editable." |
-| 2:05 | "He reviews exactly what will change, signs it, and it is live for the next request, with who, when and why on record." |
-| 2:12 | "Swathy is the platform operator. Anvil Guard shows every decision checked, the money kept from being spent, and what went to a person." |
-| 2:18 | "AI traces: every call to Gemini, with the exact input it was given and the exact output it returned, plus time, tokens and cost." |
-| 2:30 | "Every decision is chained to the one before it by a hash. Edit history and the chain breaks, and the break shows." |
-| 2:36 | "Why this matters: the same tempted agent, with Anvil switched off." |
-| 2:42 | "It books business class with no check, and the money leaks. Now Anvil is on, same request. This part is sped up." |
-| 3:04 | "Blocked, with the reason. The agent corrects itself, and the new booking is audited again before it is allowed." |
-| 3:12 | "And this is not just travel. The same engine, with a different policy, governs software purchases: eight of eight violations caught." |
-| 3:20 | "It runs entirely on Google Cloud: Firebase Hosting, Cloud Run for the API and the supplier agents, Gemini on Vertex AI, Firestore for the tamper-evident log, and the A2A and AP2 SDKs. Anvil: a signed policy, Gemini judging intent, code enforcing it, and proof of every decision." |
 
 ## Before you submit
 - [ ] Repository is **public** (GitHub > Settings > Danger zone > Change visibility) and up to date.

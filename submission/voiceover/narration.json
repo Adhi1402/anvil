@@ -1,0 +1,217 @@
+{
+ "video": "E:\\Google Hack\\demo_recording_v2\\anvil-demo.mp4",
+ "video_end": 210.0,
+ "extend": 6.0,
+ "segments": [
+  {
+   "n": 1,
+   "start": 0.0,
+   "end": 11.5,
+   "play_at": 0.3,
+   "window": 10.9,
+   "words": 23,
+   "budget": 26,
+   "text": "AI agents are starting to spend company money, but nothing proves they stayed inside what a person approved. Budget caps only see numbers."
+  },
+  {
+   "n": 2,
+   "start": 11.5,
+   "end": 26.2,
+   "play_at": 11.8,
+   "window": 14.1,
+   "words": 29,
+   "budget": 33,
+   "text": "Anvil is the engine that fixes this: a signed mandate, Gemini judging intent, code enforcing it, proof of every decision. Travel is live, software is proven, more plug in."
+  },
+  {
+   "n": 3,
+   "start": 26.2,
+   "end": 35.0,
+   "play_at": 26.5,
+   "window": 8.2,
+   "words": 15,
+   "budget": 19,
+   "text": "Our example is enterprise trip booking, with three roles: employee, finance manager, and platform operator."
+  },
+  {
+   "n": 4,
+   "start": 35.0,
+   "end": 45.8,
+   "play_at": 35.3,
+   "window": 10.2,
+   "words": 23,
+   "budget": 24,
+   "text": "Rahul plans a Goa trip and asks the agent for business class. The form warns him: three days' notice breaks the seven-day rule."
+  },
+  {
+   "n": 5,
+   "start": 45.8,
+   "end": 67.2,
+   "play_at": 46.1,
+   "window": 20.8,
+   "words": 41,
+   "budget": 49,
+   "text": "He sends it. Anvil Guard compares every offer the supplier agents return over the A to A protocol. Gemini picks one per leg, and Anvil audits every booking before any money moves. This takes a while, so it is sped up."
+  },
+  {
+   "n": 6,
+   "start": 67.2,
+   "end": 74.1,
+   "play_at": 67.5,
+   "window": 6.3,
+   "words": 13,
+   "budget": 15,
+   "text": "The agent went for business class. Anvil blocked it; the agent corrected itself."
+  },
+  {
+   "n": 7,
+   "start": 74.1,
+   "end": 79.4,
+   "play_at": 74.4,
+   "window": 4.7,
+   "words": 8,
+   "budget": 11,
+   "text": "The itinerary. Nothing is booked until finance approves."
+  },
+  {
+   "n": 8,
+   "start": 79.4,
+   "end": 91.2,
+   "play_at": 79.7,
+   "window": 11.2,
+   "words": 19,
+   "budget": 26,
+   "text": "Anvil shows its work: every offer the agent considered, whether the policy allows it, and the agent's own reasoning."
+  },
+  {
+   "n": 9,
+   "start": 91.2,
+   "end": 97.3,
+   "play_at": 91.5,
+   "window": 5.5,
+   "words": 11,
+   "budget": 13,
+   "text": "Adhish, the finance manager, gets one card for the whole trip."
+  },
+  {
+   "n": 10,
+   "start": 97.3,
+   "end": 108.5,
+   "play_at": 97.6,
+   "window": 10.6,
+   "words": 24,
+   "budget": 25,
+   "text": "He sees exactly why it needs him, and approves in one click. He cannot approve his own requests, and operators cannot approve at all."
+  },
+  {
+   "n": 11,
+   "start": 108.5,
+   "end": 116.5,
+   "play_at": 108.8,
+   "window": 7.4,
+   "words": 16,
+   "budget": 17,
+   "text": "Back with Rahul: approved, with a signed booking reference on every item, and who approved it."
+  },
+  {
+   "n": 12,
+   "start": 116.5,
+   "end": 125.2,
+   "play_at": 116.8,
+   "window": 8.1,
+   "words": 13,
+   "budget": 19,
+   "text": "Finance owns the policy. Limits, approved cities and trip rules are all editable."
+  },
+  {
+   "n": 13,
+   "start": 125.2,
+   "end": 132.4,
+   "play_at": 125.5,
+   "window": 6.6,
+   "words": 15,
+   "budget": 15,
+   "text": "He reviews the change, signs it, and it is live, with who and why recorded."
+  },
+  {
+   "n": 14,
+   "start": 132.4,
+   "end": 138.4,
+   "play_at": 132.7,
+   "window": 5.4,
+   "words": 10,
+   "budget": 12,
+   "text": "Swathy runs the AI agents. Anvil Guard shows every decision."
+  },
+  {
+   "n": 15,
+   "start": 138.4,
+   "end": 150.4,
+   "play_at": 138.7,
+   "window": 11.4,
+   "words": 24,
+   "budget": 27,
+   "text": "AI traces: every call to Gemini, with the exact input it was given and the exact output it returned, plus time, tokens and cost."
+  },
+  {
+   "n": 16,
+   "start": 150.4,
+   "end": 156.4,
+   "play_at": 150.7,
+   "window": 5.4,
+   "words": 9,
+   "budget": 12,
+   "text": "Decisions are hash-chained. Edit history, and the break shows."
+  },
+  {
+   "n": 17,
+   "start": 156.4,
+   "end": 162.7,
+   "play_at": 156.7,
+   "window": 5.7,
+   "words": 11,
+   "budget": 13,
+   "text": "Why it matters: the same tempted agent, with Anvil switched off."
+  },
+  {
+   "n": 18,
+   "start": 162.7,
+   "end": 184.4,
+   "play_at": 163.0,
+   "window": 21.1,
+   "words": 36,
+   "budget": 50,
+   "text": "It books business class with no check, and the money leaks. Now Anvil is on, same request. This part is sped up too. Watch Anvil audit the booking, and send the agent back with the reason."
+  },
+  {
+   "n": 19,
+   "start": 184.4,
+   "end": 192.4,
+   "play_at": 184.7,
+   "window": 7.4,
+   "words": 15,
+   "budget": 17,
+   "text": "Blocked, with the reason. The agent corrects itself, and the new booking is audited again."
+  },
+  {
+   "n": 20,
+   "start": 192.4,
+   "end": 199.5,
+   "play_at": 192.7,
+   "window": 6.5,
+   "words": 12,
+   "budget": 15,
+   "text": "Not just travel: the same engine governs software. Eight of eight caught."
+  },
+  {
+   "n": 21,
+   "start": 199.5,
+   "end": 216.0,
+   "play_at": 199.8,
+   "window": 15.9,
+   "words": 30,
+   "budget": 38,
+   "text": "Built on Google Cloud: Firebase Hosting, Cloud Run, Gemini, Firestore, A to A and A P 2. Anvil: signed policy, intent judged by Gemini, code enforcing it, every decision proven."
+  }
+ ]
+}
