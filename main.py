@@ -411,14 +411,23 @@ def sim_tick():
 
 @app.route("/api/eval")
 def api_eval():
-    """Scoreboard. Cached in Firestore (one Gemini call per scenario per repeat); ?refresh=1 recomputes, &repeats=N measures stability."""
+    """Scoreboard. Cached in Firestore; ?refresh=1 recomputes, &repeats=N measures stability.
+    ?domain=software scores the second domain (software purchases) against its own mandate and baseline."""
     from anvil.eval import run_eval
-    ref = db().collection("meta").document("eval_latest")
+    domain = request.args.get("domain", "travel")
+    if domain not in ("travel", "software"):
+        return jsonify({"error": "unknown domain"}), 400
+    ref = db().collection("meta").document("eval_latest" if domain == "travel" else "eval_latest_software")
     if not request.args.get("refresh"):
         cached = ref.get()
         if cached.exists:
             return jsonify(cached.to_dict()["result"])
-    result = run_eval(repeats=max(1, min(int(request.args.get("repeats", 1)), 5)))
+    repeats = max(1, min(int(request.args.get("repeats", 1)), 5))
+    if domain == "software":
+        from data.domains import SOFTWARE_MANDATE, SOFTWARE_SCENARIOS
+        result = run_eval(SOFTWARE_MANDATE, SOFTWARE_SCENARIOS, repeats=repeats)
+    else:
+        result = run_eval(repeats=repeats)
     ref.set({"result": result, "ts": datetime.now(timezone.utc).isoformat()})
     return jsonify(result)
 

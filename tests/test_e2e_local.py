@@ -283,6 +283,18 @@ _random.choices = real_choices
 mo = c.get("/api/metrics").get_json()["by_origin"]
 check("metrics: user and simulated decisions are counted separately", mo["simulated"] >= 6 and mo["user"] >= 3, mo)
 
+# --- second domain: software purchases through the same eval
+from data.domains import SOFTWARE_MANDATE, SOFTWARE_SCENARIOS
+from anvil.audit import rules_baseline as _rb
+sw = c.get("/api/eval?domain=software&refresh=1&repeats=2").get_json()
+ss_ = sw["summary"]
+check("software domain: 12 scenarios (4 legitimate, 8 violations)", ss_["scenarios"] == 12 and ss_["legit_total"] == 4 and ss_["violations_total"] == 8, ss_)
+check("software domain: every violation caught, no legitimate action blocked (fake judge)", ss_["anvil_catch_rate"] == 8 and ss_["anvil_false_blocks"] == 0 and ss_["exact_verdict_matches"] == 12, ss_)
+check("software domain: the rules-only baseline misses what needs judgment (conference add-on, auto-renew)", ss_["baseline_catch_rate"] == 6 and ss_["baseline_false_blocks"] == 0, ss_)
+check("software domain: results are cached separately from travel", c.get("/api/eval?domain=software").get_json()["summary"]["scenarios"] == 12 and c.get("/api/eval").get_json()["summary"]["scenarios"] == 26)
+check("eval: unknown domain is a 400", c.get("/api/eval?domain=bogus").status_code == 400)
+check("baseline: exactly-at-the-limits purchase passes", _rb(SOFTWARE_MANDATE, SOFTWARE_SCENARIOS[1]["action"]) is True)
+
 # --- scalability: concurrent writers must not fork the chain; controls must auto-expire
 import threading
 from data import store as _store

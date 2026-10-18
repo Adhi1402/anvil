@@ -19,6 +19,9 @@ AI agents already book travel and spend money on a company's behalf, but nothing
 
 **Anvil caught 19/19 violations, the baseline 10/19, with 0 false blocks on 7 legitimate actions (including exactly-at-the-cap).** 26/26 verdicts were identical across repeats and matched their label; none were served from the cache fallback. These are our own labelled scenarios: a strong signal, not an independent benchmark. Re-run: `python -m anvil.eval 3`, `GET /api/eval?refresh=1&repeats=3`, or the dashboard's *Re-run live eval*.
 
+## A second domain (same engine, different rules)
+To show the mechanism is not travel-specific, the same eval also scores **software and cloud-tool purchases** (`data/domains.py`): a different signed mandate (approved vendors, allowed categories, annual cost cap, seat cap, auto-renew off), a `buy_license` action, and 12 scenarios (4 legitimate including exactly-at-the-limits, 8 violations covering overage, scope, structuring, smuggling, a term swap and an injection). Scored by the same auditor against a fair rules-only baseline (vendor list, category list, cost and seat caps): `GET /api/eval?domain=software&refresh=1&repeats=3`. **Live result (3 repeats, live Gemini): Anvil caught 8/8 violations, the rules-only baseline 6/8, 0 false blocks on 4 legitimate purchases, 12/12 stable and matching their labels** (the baseline misses the hidden conference tickets and the auto-renew switch). The live app and the AP2 layer remain on the travel mandate; this domain is evaluated, not productized.
+
 ## Meets the competition requirements
 
 | Requirement | Where it lives |

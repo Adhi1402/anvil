@@ -132,6 +132,12 @@ class FakeGemini:
             return _Resp(json.dumps({"choice": -1, "rationale": "nothing compliant"}))
         mandate = json.loads(contents.split("MANDATE:\n")[1].split("\n\nACTION:")[0])
         action = json.loads(contents.split("ACTION:\n")[1])
+        if action["type"].startswith("buy_"):                    # software domain: rule-based stand-in for the semantic judge
+            hard = (action["vendor"] not in mandate["approved_vendors"] or action["category"] not in mandate["allowed_categories"]
+                    or len(action.get("charges", []) or []) > 1 or bool(action.get("extra_charges")))
+            soft = action["price"] > mandate["max_annual_cost_usd"] or action["seats"] > mandate["max_seats"] or (action.get("auto_renew") and not mandate["auto_renew_allowed"])
+            v = "DRIFT" if hard else "REVIEW" if soft else "MATCH"
+            return _Resp(json.dumps({"verdict": v, "severity": {"DRIFT": "high", "REVIEW": "low", "MATCH": "none"}[v], "violations": [], "explanation": f"fake software judge: {v}"}))
         from anvil.impact import findings, total_usd, CAP_FIELD
         hard = any(k in " ".join(findings(mandate, action)) for k in ("not approved", "destination", "split", "add-ons"))
         hard = hard or (action.get("class") not in (None, mandate["flight_class"]))

@@ -402,6 +402,9 @@
 
     <h2>Scoreboard — Anvil vs rules-only baseline</h2>
     <div class="card" id="score"><span class="small">Loading scoreboard…</span></div>
+
+    <h2>Second domain — software purchases (same engine, different rules)</h2>
+    <div class="card" id="score2"><span class="small">Loading…</span></div>
   </div>
 
 
@@ -460,7 +463,7 @@ function showTab(t) {
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + t));
   (t === "replay" ? $("replay-slot") : $("show-slot")).appendChild($("stagebox"));      // one stage, shown where it is needed
   try { history.replaceState(null, "", "#" + t); } catch {}
-  if (t === "gov") { loadMetrics(); loadScore(); }
+  if (t === "gov") { loadMetrics(); loadScore(); loadScore2(); }
   if (t === "live") { loadMetrics(); renderLive(); setTimeout(simTickMaybe, 800); }
   if (t === "replay") loadRecordings();
   window.scrollTo(0, 0);
@@ -1101,6 +1104,22 @@ def authorize(action):
     r = requests.post("${BASE}/v1/authorize", json={"action": action, "requester": "my-agent"}).json()
     if r["decision"] != "allow": raise PermissionError(r["explanation"])
     return r["cart_mandate"]   # only now call the payment API`;
+
+/* ---------------- second domain scoreboard ---------------- */
+let score2Loaded = false;
+async function loadScore2() {
+  if (score2Loaded) return;
+  try {
+    const { rows: r, summary: s } = await api("/api/eval?domain=software"); score2Loaded = true;
+    const bt = Object.entries(s.by_type || {}).map(([k, v]) => `<tr><td>${esc(k)}</td><td class="${v.anvil === v.total ? "yes" : "no"}">${v.anvil}/${v.total}</td><td class="${v.baseline === v.total ? "yes" : "no"}">${v.baseline}/${v.total}</td></tr>`).join("");
+    $("score2").innerHTML = `<p class="big" style="margin:0">Anvil caught ${s.anvil_catch_rate}/${s.violations_total} violations · rules-only ${s.baseline_catch_rate}/${s.violations_total} · ${s.anvil_false_blocks} false blocks on ${s.legit_total} legitimate purchases</p>
+      <div class="small">A different signed mandate (approved vendors, categories, annual cost cap, seat cap, auto-renew off) judged by the same auditor · ${s.scenarios} scenarios × ${s.repeats} repeat${s.repeats > 1 ? "s" : ""} on live Gemini · ${s.stable_scenarios}/${s.scenarios} stable · ${s.exact_verdict_matches}/${s.scenarios} matched their label</div>
+      <div class="g2" style="margin-top:12px"><div><table><tr><th>Failure type</th><th>Anvil</th><th>Rules-only</th></tr>${bt}</table></div>
+        <div class="small">Evaluated here, not productized: the live app runs on the travel mandate. Same caveat as the travel scoreboard: scenarios we wrote and labelled ourselves.</div></div>
+      <details><summary>All ${s.scenarios} scenarios</summary><div style="overflow-x:auto"><table><tr><th>Scenario</th><th>Type</th><th>Expected</th><th>Anvil</th></tr>
+        ${r.map(x => `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.drift_type || "")}</td><td><span class="chip ${esc(x.expect)}">${esc(x.expect)}</span></td><td><span class="chip ${esc(x.anvil_verdict)}">${esc(x.anvil_verdict)}</span></td></tr>`).join("")}</table></div></details>`;
+  } catch (e) { $("score2").innerHTML = `<span class="small">Could not load the second-domain scoreboard: ${esc(e.message)}</span>`; }
+}
 
 /* ---------------- boot ---------------- */
 buildFlow(); renderLegs(); loadMandate(); loadChainBadge(); loadMetrics().then(() => { loadImpact(); });
