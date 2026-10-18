@@ -235,7 +235,7 @@ for i, (h, items) in enumerate(cols):
 
 # ------------------------------------------------------------------ slide 6: process flow
 s = S[5]
-tb(s, 0.3, 1.02, 9.4, 0.25, [("The engine flow is domain-neutral; shown here with the enterprise example, business trip booking", {"size": 9.5, "italic": True, "color": MUTE})])
+tb(s, 0.3, 2.22, 4.4, 0.5, [("The engine flow is domain-neutral; shown here with the enterprise example, business trip booking", {"size": 9.5, "italic": True, "color": MUTE})])
 steps = ["1  Finance signs the policy", "2  Employee plans a trip", "3  Supplier agents return offers (A2A)", "4  Gemini agent picks one offer per leg", "5  Anvil audits each booking"]
 for i, t in enumerate(steps):
     x = 0.25 + i * 1.95
