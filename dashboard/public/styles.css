@@ -422,3 +422,6 @@ details.card>summary::after{content:"+";float:right;color:var(--muted)} details.
 
 .meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:12.5px;color:var(--muted);margin-top:6px}
 .when-line{margin-top:2px}
+
+.oc.dead{border-color:var(--bad);background:var(--bad-bg);text-decoration:line-through;opacity:.8!important}
+.gl-fix{margin-top:8px;padding:8px 10px;border-radius:10px;background:var(--bad-bg);border:1px solid var(--bad-line);font-size:12.5px;line-height:1.45}

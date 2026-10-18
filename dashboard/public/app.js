@@ -415,7 +415,11 @@ function liveEvent(ev) {
   } else if (ev.event === "correction_start") { const b = blk(liveStart.cur); if (b) { b.classList.remove("scan"); b.classList.add("blocked"); b.querySelector(".gl-state").textContent = "Blocked. The agent is choosing a compliant option…"; }
   } else if (ev.event === "step") {
     const a = ev.step.audit, b = blk(ev.step.action.leg || ev.kind); if (!b) return; b.classList.remove("scan", "blocked");
-    const st = { cls: COLORCLS[a.verdict] || "info", label: LABELS[a.verdict] || a.verdict }; b.classList.add("v-" + st.cls);
+    const act = ev.step.action, st = { cls: COLORCLS[a.verdict] || "info", label: LABELS[a.verdict] || a.verdict };
+    if (a.verdict === "DRIFT") { b._blocked = { vendor: act.vendor, price: act.price, why: short(a.explanation, 140) }; b.querySelectorAll(".oc").forEach(c => { if (c.dataset.k === chipKey(act)) c.classList.add("dead"); }); }
+    else if (b._blocked) { let fx = b.querySelector(".gl-fix"); if (!fx) { fx = document.createElement("div"); fx.className = "gl-fix"; b.insertBefore(fx, b.querySelector(".gl-why")); }
+      fx.innerHTML = `<b>Blocked first:</b> ${esc(b._blocked.vendor)} ${usd(b._blocked.price)}. ${esc(b._blocked.why)} <b>Anvil told the agent why. It chose ${esc(act.vendor)} ${usd(act.price)} instead.</b>`; }
+    b.classList.add("v-" + st.cls);
     b.querySelector(".gl-state").innerHTML = badge(st); b.querySelector(".gl-why").textContent = short(a.explanation, 160);
   }
 }
