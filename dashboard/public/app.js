@@ -242,7 +242,7 @@ const errBox = (t, retry) => `<div class="empty"><b>Something did not load</b>${
 function kpiHtml(list) { return list.map(([l, v, s]) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s || ""}</div></div>`).join(""); }
 function mandateTerms() {
   const m = S.mandate?.mandate; if (!m) return null; const c = m.constraints;
-  return { m, c, valid: S.mandate.signature_valid, rows: [["Destination", c.destination], ["Flights", `Up to ${usd(c.max_flight_price_usd)}, ${c.flight_class} class`], ["Hotels", `Up to ${usd(c.max_hotel_per_night_usd)} per night`],
+  return { m, c, valid: S.mandate.signature_valid, rows: [["Destinations", S.tripOpts?.destinations ? `${S.tripOpts.destinations.length} approved cities` : c.destination], ["Flights", `Up to ${usd(c.max_flight_price_usd)}, ${c.flight_class} class`], ["Hotels", `Up to ${usd(c.max_hotel_per_night_usd)} per night`],
     ["Ground transport", `Up to ${usd(c.max_transport_usd)}`], ["Preferred airlines", c.preferred_airlines.join(", ")], ["Refundability", c.refundable_required ? "Refundable fares and rooms required" : "Not required"],
     ["Book by", c.book_by || "—"]] };
 }
@@ -354,12 +354,12 @@ const addDays = (n, from = new Date()) => { const d = new Date(from); d.setDate(
 const TOD = [["any", "Any time"], ["morning", "Morning (before 12:00)"], ["afternoon", "Afternoon (12:00 to 18:00)"], ["evening", "Evening (after 18:00)"]];
 const sel = (id, opts, v) => `<select id="${id}">${opts.map(([k, l]) => `<option value="${esc(k)}" ${k === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
 function tripFormHtml() {
-  const o = S.tripOpts || {}, origins = o.origins || ["Bengaluru", "Delhi", "Chennai", "Hyderabad", "Pune"], purposes = o.purposes || ["Client meeting", "Conference or event", "Training", "Internal / team offsite", "Recruiting", "Other"];
+  const o = S.tripOpts || {}, origins = o.origins || ["Bengaluru", "Delhi", "Chennai", "Hyderabad", "Pune", "Mumbai"], dests = o.destinations || origins, purposes = o.purposes || ["Client meeting", "Conference or event", "Training", "Internal / team offsite", "Recruiting", "Other"];
   const ccs = Object.entries(o.cost_centers || { "CC-1042": "Sales, APAC", "CC-2210": "Engineering, Platform", "CC-3105": "Customer Success", "CC-4001": "Leadership" });
   return `<div class="tf"><div><div class="tf-grid">
     <div class="field span2"><span>Trip type</span><div class="seg" id="t-type" role="group" aria-label="Trip type"><button type="button" data-tt="round_trip" aria-pressed="true">Round trip</button><button type="button" data-tt="one_way" aria-pressed="false">One way</button></div></div>
     <label class="field">From${sel("t-from", origins.map(c => [c, c]), "Bengaluru")}</label>
-    <label class="field">To${sel("t-to", [["Mumbai", "Mumbai"], ["other", "Another city…"]], "Mumbai")}</label>
+    <label class="field">To${sel("t-to", dests.map(c => [c, c]), "Mumbai")}</label>
     <label class="field">Departure date<input type="date" id="t-dep" value="${isoDay(addDays(21))}" min="${isoDay(new Date())}"></label>
     <label class="field">Preferred departure time${sel("t-depp", TOD, "any")}</label>
     <label class="field" id="t-ret-w">Return date<input type="date" id="t-ret" value="${isoDay(addDays(24))}" min="${isoDay(new Date())}"></label>
@@ -379,13 +379,13 @@ function tripFormHtml() {
 const tfVal = id => $(id)?.value ?? "";
 function tfRead() {
   const type = $("t-type").querySelector("[aria-pressed=true]").dataset.tt;
-  return { type, origin: tfVal("t-from"), dest: tfVal("t-to") === "other" ? "" : tfVal("t-to"), other: tfVal("t-to") === "other", dep: tfVal("t-dep"), ret: tfVal("t-ret"), nightsIn: Number(tfVal("t-nights")) || 0, depp: tfVal("t-depp"), retp: tfVal("t-retp"),
+  return { type, origin: tfVal("t-from"), dest: tfVal("t-to"), dep: tfVal("t-dep"), ret: tfVal("t-ret"), nightsIn: Number(tfVal("t-nights")) || 0, depp: tfVal("t-depp"), retp: tfVal("t-retp"),
     hotel: $("t-hotel").checked, tr: $("t-tr").checked, purpose: tfVal("t-purpose"), cc: tfVal("t-cc"), just: tfVal("t-just").trim(), note: tfVal("t-note").trim() };
 }
 function tfCalc(f) {
   const pol = S.tripOpts?.policy || { min_advance_days: 7, max_trip_days: 14 }, c = S.mandate?.mandate?.constraints || {}, errs = [], warns = [];
   const rt = f.type === "round_trip", nights = rt ? Math.round((dayOf(f.ret) - dayOf(f.dep)) / 864e5) : f.nightsIn, notice = f.dep ? daysTo(f.dep) : null;
-  if (f.other) errs.push(`Your travel policy covers ${c.destination || "Mumbai"} only. For another city, ask finance for a trip authorization first.`);
+  if (f.origin === f.dest) errs.push("The origin and destination are the same.");
   if (!f.dep) errs.push("Choose a departure date."); else if (notice < 0) errs.push("The departure date is in the past.");
   if (rt) { if (!f.ret) errs.push("Choose a return date."); else if (f.ret < f.dep) errs.push("The return date is before the departure date."); }
   if (f.hotel && nights < 1 && !errs.length) errs.push(rt ? "A hotel needs at least one night: pick a later return date or turn the hotel off." : "Enter how many nights you will stay.");
@@ -398,7 +398,7 @@ function tfCalc(f) {
 function tfEstimate() {
   if (!$("t-est")) return null; const f = tfRead(), x = tfCalc(f);
   $("t-ret-w").hidden = !x.rt; $("t-retp-w").hidden = !x.rt; $("t-nights-w").hidden = x.rt;
-  $("t-est").innerHTML = `<h4>Your trip</h4><div class="small">${esc(f.origin)} → ${esc(f.other ? "another city" : f.dest)} · ${x.rt ? "round trip" : "one way"}</div>
+  $("t-est").innerHTML = `<h4>Your trip</h4><div class="small">${esc(f.origin)} → ${esc(f.dest)} · ${x.rt ? "round trip" : "one way"}</div>
     <div class="est-dates">${f.dep ? esc(fmtDay(f.dep)) : "—"}${x.rt && f.ret ? ` to ${esc(fmtDay(f.ret))}` : ""}</div>
     <div class="small">${x.notice != null && f.dep ? (x.notice >= 0 ? `Leaves in ${plural(x.notice, "day")}` : "In the past") : ""}${x.nights > 0 ? ` · ${plural(x.nights, "night")} away` : ""}</div>
     <div class="eyebrow" style="margin:12px 0 4px">Bookings the agent will make</div><ul class="est-legs">${x.legs.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
@@ -440,6 +440,10 @@ PAGES.home = {
     if (!$("h-list")) return;
     const res = resolvedMap(), all = myGroups(res), list = S.f.reqStatus === "all" ? all : all.filter(g => g.st.key === S.f.reqStatus);
     const cnt = k => all.filter(g => g.st.key === k).length, upcoming = all.filter(g => g.st.key === "ok" && g.trip && daysTo(g.trip.return_date || g.trip.depart_date) >= 0).length;
+    if (S.tripOpts && !S.optsApplied && $("t-to")) {           // the form was drawn before the server's city and cost-centre lists arrived
+      S.optsApplied = true; const o = S.tripOpts, fill = (id, list) => { const el = $(id), v = el.value; el.innerHTML = list.map(([k, l]) => `<option value="${esc(k)}">${esc(l)}</option>`).join(""); if ([...el.options].some(x => x.value === v)) el.value = v; };
+      fill("t-from", o.origins.map(c => [c, c])); fill("t-to", (o.destinations || o.origins).map(c => [c, c])); fill("t-purpose", o.purposes.map(c => [c, c])); fill("t-cc", Object.entries(o.cost_centers).map(([k, v]) => [k, `${k} · ${v}`])); tfEstimate();
+    }
     if (!all.length && S.live && !S.f.formSeen) { S.f.formSeen = true; openForm(true); }
     $("h-kpis").innerHTML = kpiHtml([["Trips and requests", all.length, "submitted by you"], ["Upcoming trips", upcoming, "approved and booked"], ["Awaiting approval", cnt("wait"), "with a finance manager"], ["Not approved", cnt("bad"), "blocked, rejected or withdrawn"]]);
     $("h-list").innerHTML = S.rows.length || S.live ? (list.map(g => reqCard(g, res)).join("") || emptyBox(all.length ? "Nothing in this view" : "No trips yet", all.length ? "Try another filter." : "Choose “Plan a trip” above. You will see the decision here, live.")) : `<div class="pad"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`;
@@ -597,8 +601,10 @@ function notifyDecisions() {                            // tells a traveller the
   if (!S.session || !S.live) return;
   const mineDecisions = S.rows.filter(e => isDecision(e) && e.requester === myName() && !e.action?.withdrawn);
   if (!notifyReady) { mineDecisions.forEach(e => notified.add(e.id)); notifyReady = true; return; }
-  mineDecisions.filter(e => !notified.has(e.id)).forEach(e => { notified.add(e.id); const t = tripOf(e);
-    toast(`${e.approver || "A manager"} ${e.verdict === "APPROVED" ? "approved" : "rejected"} your ${t ? `trip to ${t.destination}` : "request"}${t ? ` (${LEGL[e.action.leg] || KINDS[kindOf(e.action)]})` : ""}.`, e.verdict !== "APPROVED"); });
+  const fresh = mineDecisions.filter(e => !notified.has(e.id)), groups = {};
+  fresh.forEach(e => { notified.add(e.id); (groups[tripOf(e)?.id || e.id] ||= []).push(e); });
+  Object.values(groups).forEach(g => { const e = g[0], t = tripOf(e), ok = e.verdict === "APPROVED";
+    toast(`${e.approver || "A manager"} ${ok ? "approved" : "rejected"} your ${t ? `trip to ${t.destination}${g.length > 1 ? ` (${plural(g.length, "booking")})` : ` (${LEGL[e.action.leg] || KINDS[kindOf(e.action)]})`}` : "request"}.`, !ok); });
 }
 
 /* ============================== page: Spend ============================== */

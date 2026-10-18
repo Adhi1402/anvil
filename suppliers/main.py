@@ -9,8 +9,17 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
+# price factor and block-time factor by city (Mumbai is the baseline). Same carriers, hotel chains and ground operators everywhere.
+CITY = {"Mumbai": (1.0, 1.0), "Delhi": (1.02, 1.1), "Bengaluru": (0.9, 1.0), "Chennai": (0.95, 1.1), "Hyderabad": (0.92, 1.0), "Pune": (0.88, 0.9),
+        "Kolkata": (1.05, 1.4), "Ahmedabad": (0.9, 0.9), "Jaipur": (0.93, 1.0), "Goa": (1.05, 1.0), "Dubai": (1.2, 2.6), "Singapore": (1.18, 3.6)}
+
+
+def _everywhere(rows):
+    return [{**r, "destination": c, "price": round(r["price"] * pf)} for c, (pf, _) in CITY.items() for r in rows]
+
+
 # out / back = scheduled departure time of day on the outbound and the return sector; mins = block time
-FLIGHTS = [
+_FLIGHTS = [
     {"vendor": "Air India", "price": 480, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "AI 631", "out": "06:10", "back": "19:30", "mins": 130},
     {"vendor": "Air India", "price": 520, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "AI 657", "out": "18:40", "back": "08:05", "mins": 135},
     {"vendor": "IndiGo", "price": 430, "class": "economy", "refundable": False, "destination": "Mumbai", "no": "6E 204", "out": "07:25", "back": "21:10", "mins": 125},
@@ -18,14 +27,15 @@ FLIGHTS = [
     {"vendor": "Emirates", "price": 590, "class": "business", "refundable": True, "destination": "Mumbai", "no": "EK 508", "out": "22:10", "back": "10:45", "mins": 140},
     {"vendor": "Vistara", "price": 540, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "UK 861", "out": "09:30", "back": "12:55", "mins": 130},
 ]
-HOTELS = [
+_HOTELS = [
     {"vendor": "Taj", "price": 280, "refundable": True, "destination": "Mumbai"},
     {"vendor": "OYO", "price": 180, "refundable": False, "destination": "Mumbai"},
     {"vendor": "Lemon Tree", "price": 140, "refundable": False, "destination": "Mumbai"},
     {"vendor": "Marriott", "price": 295, "refundable": True, "destination": "Mumbai"},
 ]
-TRANSPORT = [{"vendor": "Uber", "price": 40, "destination": "Mumbai"},
+_TRANSPORT = [{"vendor": "Uber", "price": 40, "destination": "Mumbai"},
              {"vendor": "Ola Prime", "price": 85, "destination": "Mumbai"}]
+FLIGHTS, HOTELS, TRANSPORT = _everywhere(_FLIGHTS), _everywhere(_HOTELS), _everywhere(_TRANSPORT)
 
 
 def _search(inventory, data):
@@ -45,7 +55,7 @@ def _flights(data):
         start = datetime.fromisoformat(f"{str(data['date'])[:10]}T{o['back'] if back else o['out']}")
         row = {k: v for k, v in o.items() if k not in ("no", "out", "back", "mins")}
         row.update({"flight_no": o["no"], "from_city": dest if back else origin, "to_city": origin if back else dest,
-                    "depart": start.strftime("%Y-%m-%dT%H:%M"), "arrive": (start + timedelta(minutes=o["mins"])).strftime("%Y-%m-%dT%H:%M")})
+                    "depart": start.strftime("%Y-%m-%dT%H:%M"), "arrive": (start + timedelta(minutes=round(o["mins"] * CITY.get(dest, (1, 1))[1]))).strftime("%Y-%m-%dT%H:%M")})
         out.append(row)
     pref = data.get("pref")
     band = {"morning": (0, 12), "afternoon": (12, 18), "evening": (18, 24)}.get(pref)

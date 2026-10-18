@@ -7,7 +7,10 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 POLICY = {"min_advance_days": 7, "max_trip_days": 14}
-ORIGINS = ["Bengaluru", "Delhi", "Chennai", "Hyderabad", "Pune"]
+# Cities the company travels to and from. A trip between any two of them is within policy on destination; the signed spending
+# limits, refundability, class and supplier rules still apply to every booking. (A real deployment holds this list per grade.)
+CITIES = ["Mumbai", "Delhi", "Bengaluru", "Chennai", "Hyderabad", "Pune", "Kolkata", "Ahmedabad", "Jaipur", "Goa", "Dubai", "Singapore"]
+ORIGINS = DESTINATIONS = CITIES
 PURPOSES = ["Client meeting", "Conference or event", "Training", "Internal / team offsite", "Recruiting", "Other"]
 COST_CENTERS = {"CC-1042": "Sales, APAC", "CC-2210": "Engineering, Platform", "CC-3105": "Customer Success", "CC-4001": "Leadership"}
 PREFS = ("morning", "afternoon", "evening", "any")
@@ -16,6 +19,15 @@ SCHEDULE_KEYS = ("leg", "trip", "flight_no", "from_city", "to_city", "route", "d
 LEG_ORDER = ["flight_out", "transfer_out", "hotel", "transfer_back", "flight_back"]
 LEG_LABEL = {"flight_out": "Outbound flight", "transfer_out": "Airport to hotel", "hotel": "Hotel",
              "transfer_back": "Hotel to airport", "flight_back": "Return flight"}
+
+
+def policy_action(mandate, action):
+    """The auditor's view of a trip booking: the destination is judged by the approved-city list, not by the one city the
+    signed mandate happened to be issued for. A destination that is not on the list is left as it is and is still blocked."""
+    t = action.get("trip") or {}
+    if t.get("destination") in DESTINATIONS and action.get("destination") == t["destination"] and mandate.get("destination"):
+        return {**action, "destination": mandate["destination"]}
+    return action
 
 
 def strip(action):
@@ -66,6 +78,8 @@ def normalize(t, requester=None):
     origin, dest = str(t.get("origin") or "").strip()[:40], str(t.get("destination") or "").strip()[:40]
     if not origin or not dest:
         raise ValueError("Choose where you are travelling from and to.")
+    if origin not in CITIES or dest not in CITIES:
+        raise ValueError(f"{dest if dest not in CITIES else origin} is not on the approved city list.")
     if origin.lower() == dest.lower():
         raise ValueError("The origin and destination are the same.")
     pref = lambda k: t.get(k) if t.get(k) in PREFS else "any"
@@ -77,10 +91,10 @@ def normalize(t, requester=None):
     return out
 
 
-def default_trip(requester=None, days_ahead=14):
+def default_trip(requester=None, days_ahead=14, destination="Mumbai", origin="Bengaluru"):
     """For callers that send plain text only (simulated traffic, the demo studio): a one-way trip with a 3-night stay."""
     d = today() + timedelta(days=days_ahead)
-    return {"id": uuid.uuid4().hex[:8], "type": "one_way", "origin": "Bengaluru", "destination": "Mumbai", "depart_date": d.isoformat(),
+    return {"id": uuid.uuid4().hex[:8], "type": "one_way", "origin": origin, "destination": destination, "depart_date": d.isoformat(),
             "return_date": None, "nights": 3, "hotel": True, "transport": True, "depart_pref": "any", "return_pref": "any",
             "purpose": "Client meeting", "cost_center": "CC-1042", "justification": "", "traveler": requester or ""}
 

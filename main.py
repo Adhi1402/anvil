@@ -340,7 +340,7 @@ def withdraw(entry_id):
 @app.route("/api/trip-options")
 def trip_options():
     """What the trip form offers (cities, purposes, cost centres) and the company rules a trip is judged on."""
-    return jsonify({"origins": trip_mod.ORIGINS, "purposes": trip_mod.PURPOSES, "cost_centers": trip_mod.COST_CENTERS,
+    return jsonify({"origins": trip_mod.ORIGINS, "destinations": trip_mod.DESTINATIONS, "purposes": trip_mod.PURPOSES, "cost_centers": trip_mod.COST_CENTERS,
                     "policy": trip_mod.POLICY, "today": trip_mod.today().isoformat(), "leg_labels": trip_mod.LEG_LABEL})
 
 
@@ -451,7 +451,7 @@ def sim_tick():
         if kind == "scenario":
             proposals, text = _scenario_proposals(mandate, what), None
         else:
-            gathered = planner.gather_offers(mandate, trip_mod.default_trip(who, days_ahead=random.choice([3, 10, 14, 14, 21, 30, 45])))
+            gathered = planner.gather_offers(mandate, trip_mod.default_trip(who, days_ahead=random.choice([3, 10, 14, 14, 21, 30, 45]), destination=random.choice(trip_mod.DESTINATIONS), origin=random.choice(trip_mod.ORIGINS[2:6])))
             try:
                 plan, meta = planner.choose(mandate, what, gathered)
             except Exception:

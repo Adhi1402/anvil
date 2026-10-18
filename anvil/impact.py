@@ -1,7 +1,7 @@
 """Counterfactual receipts: what an action would have cost the company if nothing had stopped it.
 Computed deterministically from the action vs the mandate (no model), so every figure is checkable."""
 
-from anvil.trip import nights
+from anvil.trip import nights, policy_action
 
 CAP_FIELD = {"book_flight": "max_flight_price_usd", "book_hotel": "max_hotel_per_night_usd",
              "book_transport": "max_transport_usd"}
@@ -24,6 +24,7 @@ def total_usd(action):
 
 def findings(mandate, action):
     """Plain facts about how the action departs from the mandate's stated terms."""
+    action = policy_action(mandate, action)
     out = []
     if action.get("supplier") not in mandate.get("allowed_suppliers", []):
         out.append(f"supplier '{action.get('supplier')}' is not approved")
@@ -48,6 +49,7 @@ def findings(mandate, action):
 
 def categories(mandate, action):
     """Failure-taxonomy tags derived from the same facts as findings() (deterministic, checkable)."""
+    action = policy_action(mandate, action)
     out = set()
     if action.get("supplier") not in mandate.get("allowed_suppliers", []) or \
             action.get("destination") not in (None, mandate.get("destination")):

@@ -47,9 +47,11 @@ with sync_playwright() as p:
         page.goto(f"{URL}?as={who}&theme={theme}&api={API}{hash_}")
         return page
 
-    def plan(page, dep, ret, reason, trip_type="round_trip", wait_for="Approved|Sent for approval"):
+    def plan(page, dep, ret, reason, trip_type="round_trip", wait_for="Approved|Sent for approval", dest=None):
         page.click("[data-act=newtrip]")
         page.wait_for_selector("#trip-form:not([hidden])")
+        if dest:
+            page.select_option("#t-to", dest)
         if trip_type == "one_way":
             page.click("[data-tt=one_way]")
         page.fill("#t-dep", dep)
@@ -77,8 +79,9 @@ with sync_playwright() as p:
     r.fill("#t-ret", D(1))
     r.wait_for_timeout(200)
     check("a return before the departure disables the button", r.is_disabled("#t-go") and "before the departure" in r.inner_text("#t-est"))
-    r.select_option("#t-to", "other")
-    check("another city is refused with an explanation", r.is_disabled("#t-go") and "covers" in r.inner_text("#t-est"))
+    r.fill("#t-ret", D(4))
+    r.select_option("#t-to", "Bengaluru")
+    check("the same origin and destination is refused", r.is_disabled("#t-go") and "same" in r.inner_text("#t-est"))
     r.select_option("#t-to", "Mumbai")
     r.fill("#t-dep", D(20)); r.fill("#t-ret", D(23))
     r.fill("#t-just", "Quarterly review with the Mumbai client team")
@@ -94,10 +97,11 @@ with sync_playwright() as p:
     check("the stay is priced for every night", "$840" in card, card)
 
     # ---- employee: a late trip is escalated as ONE trip
-    plan(r, D(3), D(5), "Customer escalation, travelling at short notice", wait_for="Sent for approval")
+    plan(r, D(3), D(5), "Customer escalation, travelling at short notice", wait_for="Sent for approval", dest="Goa")
     r.click("[data-act=closeform]")
     r.wait_for_function("document.querySelector('#h-list')?.innerText.includes('Awaiting approval')", timeout=20000)
     check("a late trip shows as one request awaiting approval", r.locator("#h-list .item.warn").count() == 1)
+    check("trips to other cities work: the card says Goa", "Bengaluru → Goa" in r.locator("#h-list .item.warn").first.inner_text())
     check("the shared reason is stated once", r.locator("#h-list .item.warn .impact").count() == 1 and "days' notice" in r.locator("#h-list .item.warn .impact").first.inner_text())
     shot(r, "employee_late_trip", full_page=True)
 
@@ -121,7 +125,7 @@ with sync_playwright() as p:
     # the employee sees the manager's decision and is notified
     r.wait_for_function("document.querySelector('#h-list .item')?.innerText.includes('Adhish Sekar')", timeout=20000)
     check("the employee sees who approved the trip and the comment", "customer escalation" in r.inner_text("#h-list").lower() and "Approved by" in r.inner_text("#h-list"))
-    check("the employee is notified of the decision", "approved your trip to Mumbai" in r.inner_text("#toasts"), r.inner_text("#toasts"))
+    check("the employee is notified of the decision", "approved your trip to Goa" in r.inner_text("#toasts"), r.inner_text("#toasts"))
 
     # ---- nobody approves their own trip; a request can be withdrawn
     a.evaluate("location.hash='#/home'")

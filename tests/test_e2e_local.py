@@ -375,6 +375,15 @@ wd = [d.to_dict() for d in fake_db.collection("provenance").stream() if d.to_dic
 check("withdraw: recorded as a rejection by the requester, with the trip kept", wd["verdict"] == "REJECTED" and wd["action"]["withdrawn"] and wd["requester"] == "Rahul" and wd["action"]["trip"]["id"])
 ap = c.post("/approve/" + pend[1].id, json={"approver": "Adhish Sekar", "comment": "ok"})
 check("trip: approving an escalated leg issues a receipt for the stay", ap.status_code == 200)
+fake_db.collection("provenance").docs.clear()
+for city in ("Delhi", "Goa", "Singapore"):
+    code, evs = stream("/stream/request", {"text": f"Round trip to {city}.", "requester": "Rahul", "trip": {**RT, "destination": city}})
+    sts = [e["step"] for e in evs if e["event"] == "step"]
+    check(f"destinations: a round trip to {city} plans five legs in that city", [x["action"]["leg"] for x in sts] == ["flight_out", "transfer_out", "hotel", "transfer_back", "flight_back"] and all(x["action"]["trip"]["destination"] == city for x in sts), [e.get("message") for e in evs if e["event"] == "error"])
+    check(f"destinations: {city} is judged by the approved-city list, never as the wrong destination", not any("destination" in " ".join(x["audit"]["violations"]) for x in sts) and all(x["audit"]["verdict"] != "DRIFT" for x in sts), [x["audit"]["violations"] for x in sts])
+check("destinations: an expensive city escalates what is over the limit instead of failing", any(x["audit"]["verdict"] == "REVIEW" for x in sts))
+check("destinations: a city that is not approved is a 400", c.post("/stream/request", json={"text": "x", "trip": {**RT, "destination": "Atlantis"}}).status_code == 400)
+check("destinations: scripted wrong-destination scenario is still blocked", c.post("/run/Wrong%20destination").get_json()[0]["audit"]["verdict"] == "DRIFT")
 opts = c.get("/api/trip-options").get_json()
 check("trip options: cities, purposes, cost centres and the rules", "Bengaluru" in opts["origins"] and opts["policy"]["min_advance_days"] == 7 and "CC-1042" in opts["cost_centers"])
 a2 = c.post("/v1/authorize", json={"action": {"type": "book_hotel", "vendor": "Taj", "price": 280, "refundable": True, "nights": 2, "check_in": D(30), "check_out": D(32), "hack": 1},

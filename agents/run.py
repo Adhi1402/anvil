@@ -67,7 +67,7 @@ def _rule_pick(mandate, kind, offers):
 def replan(mandate, action, violations=""):
     """Correction loop: re-search the same supplier, then choose an offer that fixes the stated violations."""
     kind = _KIND[action["type"]]
-    supplier, offers = _offers(kind, {"destination": mandate["destination"], "max_price": mandate.get(_CAP[action["type"]]), **T.search_params(action)})
+    supplier, offers = _offers(kind, {"destination": (action.get("trip") or {}).get("destination") or mandate["destination"], "max_price": mandate.get(_CAP[action["type"]]), **T.search_params(action)})
     if not offers:
         return None
     meta = None

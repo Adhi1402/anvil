@@ -2,7 +2,7 @@
 import hashlib
 import json
 from anvil.gemini import MODEL, call_json
-from anvil.trip import strip
+from anvil.trip import policy_action, strip
 
 SCHEMA = {
     "type": "OBJECT",
@@ -84,7 +84,7 @@ def _cache_put(key, verdict):
 
 
 def audit(mandate, action):
-    action = strip(action)                              # trip dates and times are judged by anvil.trip, not the model
+    action = strip(policy_action(mandate, action))                              # trip dates and times are judged by anvil.trip, not the model
     contents = PROMPT.format(mandate=json.dumps(mandate, indent=2), action=json.dumps(action, indent=2))
     key = _cache_key(mandate, action)
     try:

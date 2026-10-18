@@ -35,7 +35,7 @@ OFFERS (index: offer)
 
 
 def brief(mandate):
-    return (f"trip to {mandate['destination']}; {mandate['flight_class']} class flights on "
+    return (f"{mandate['flight_class']} class flights on "
             f"{', '.join(mandate['preferred_airlines'])} up to ${mandate['max_flight_price_usd']}; "
             f"hotels up to ${mandate['max_hotel_per_night_usd']}/night; ground transport up to "
             f"${mandate['max_transport_usd']}; {'refundable bookings only' if mandate.get('refundable_required') else 'refundability optional'}.")
@@ -57,7 +57,7 @@ def gather_offers(mandate, trip=None):
     legs = {}
     for spec in T.legs_for(trip):
         card = discover(spec["kind"])
-        supplier, offers = _offers(spec["kind"], {"destination": mandate["destination"], "max_price": None, **spec["search"]})
+        supplier, offers = _offers(spec["kind"], {"destination": trip["destination"], "max_price": None, **spec["search"]})
         legs[spec["id"]] = {**spec, "card": card["name"], "via": card.get("via", ""), "supplier": supplier, "offers": offers}
     return {"trip": trip, "legs": legs}
 
@@ -115,7 +115,8 @@ def fallback(mandate, gathered=None):
               and ("class" not in o or o["class"] == mandate.get("flight_class"))
               and (g["kind"] != "flight" or o["vendor"] in mandate.get("preferred_airlines", [o["vendor"]]))
               and o["price"] <= mandate.get(caps[g["kind"]], 1e9)]
-        if not ok:
-            raise ValueError(f"no compliant offer for {lid}")
-        picks[lid] = (sorted(ok, key=lambda o: o["price"])[0], "scripted fallback planner (Gemini unavailable)")
+        pool = ok or g["offers"]                          # nothing fits (an expensive city): book the cheapest and let a person decide
+        if not pool:
+            raise ValueError(f"no offers for {lid}")
+        picks[lid] = (sorted(pool, key=lambda o: o["price"])[0], "scripted fallback planner (Gemini unavailable)")
     return _assemble(gathered, picks)
