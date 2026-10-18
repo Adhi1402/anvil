@@ -1,9 +1,12 @@
 """Anvil walking skeleton: mandate -> travel agent -> Gemini auditor -> Firestore -> dashboard."""
+import collections
 import hashlib
 import html
 import json
 import os
+import random
 import time
+from functools import wraps
 from datetime import datetime, timezone
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -16,7 +19,7 @@ from anvil.guard import book_with_guard, guard_stream
 from anvil.impact import counterfactual, impact_summary
 from anvil.metrics import metrics_summary
 from data.store import (db, get_mandate, verify_mandate, log_provenance, list_provenance, verify_chain,
-                        delegation_for, cart_mandate, get_controls, set_controls)
+                        delegation_for, cart_mandate, get_controls, set_controls, sim_lease)
 
 app = Flask(__name__)
 
@@ -27,6 +30,31 @@ def cors(resp):
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return resp
+
+
+# ---- light abuse protection for the endpoints that cost Gemini calls (per instance, per IP)
+RATE_PER_MIN = int(os.environ.get("ANVIL_RATE_PER_MIN", "120"))
+_rate = {}
+
+
+def _client_ip():
+    return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or "?")
+
+
+def limited(fn):
+    @wraps(fn)
+    def inner(*a, **k):
+        if request.method == "OPTIONS":
+            return fn(*a, **k)
+        now, q = time.time(), _rate.setdefault(_client_ip(), collections.deque())
+        while q and now - q[0] > 60:
+            q.popleft()
+        if len(q) >= RATE_PER_MIN:
+            return jsonify({"error": "rate limit: too many requests, please slow down"}), 429
+        q.append(now)
+        return fn(*a, **k)
+    return inner
+
 
 PAGE = """<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Anvil</title>
@@ -65,10 +93,10 @@ def run():
     return redirect("/") if request.method == "POST" else jsonify(out)
 
 
-def _log_steps(intent, steps, agent_telemetry=None):
+def _log_steps(intent, steps, agent_telemetry=None, meta=None):
     """Log every step with its 3-hop delegation chain; MATCH steps also get a signed Cart Mandate."""
     for st in steps:
-        extra = {"intent_signature": intent["signature"]}
+        extra = {"intent_signature": intent["signature"], **(meta or {})}
         tele = st["audit"].get("telemetry")
         if tele:
             extra["telemetry"] = tele
@@ -101,16 +129,48 @@ def _ev(name, **kw):
     return {"event": name, "t": round(time.time(), 3), **kw}
 
 
-def run_stream(intent, proposals, request_text=None):
+def _clean(v, n):
+    return str(v).strip()[:n] if v is not None else None
+
+
+def _meta(requester, origin, request_text):
+    """Who/what produced these decisions, stored on every provenance entry (and shown in the live feed)."""
+    m = {"origin": origin}
+    if requester:
+        m["requester"] = _clean(requester, 40)
+    if request_text:
+        m["request"] = _clean(request_text, 200)
+    return m
+
+
+def run_stream(intent, proposals, request_text=None, requester=None, origin="user", enforce=True, max_corrections=None):
     """The one execution path: proposals [(action, rationale, agent_telemetry)] -> guarded, logged, streamed events.
-    Every step is written to the provenance chain the moment it completes, so Firestore listeners update live too."""
+    Every step is written to the provenance chain the moment it completes, so Firestore listeners update live too.
+    enforce=False simulates an UNPROTECTED agent for the demo contrast: nothing is audited, logged or issued; the
+    leaked dollars are computed deterministically from the action vs the mandate."""
     mandate, controls = intent["constraints"], get_controls()
-    yield _ev("run_start", request=request_text, legs=len(proposals), controls=controls)
+    meta = _meta(requester, origin, request_text)
+    yield _ev("run_start", request=request_text, legs=len(proposals), controls=controls, enforce=enforce, requester=meta.get("requester"))
+    if not enforce:
+        for action, rationale, _ in proposals:
+            kind = action["type"].replace("book_", "")
+            yield _ev("proposal", kind=kind, action=action, rationale=rationale)
+            cf = counterfactual(mandate, action, "UNCHECKED")
+            leak = cf["total_usd"] if cf["findings"] else 0
+            cf = {**cf, "leaked_usd": leak, "outcome": "executed unchecked",
+                  "summary": f"Executed with no check: ${cf['total_usd']:,.0f} spent" + (f" ({'; '.join(cf['findings'])})." if cf["findings"] else ", within policy.")}
+            step = {"action": action, "bypass": True, "counterfactual": cf,
+                    "audit": {"verdict": "UNCHECKED", "severity": "none", "violations": cf["findings"], "source": "bypass",
+                              "explanation": "Anvil enforcement is OFF: this action was executed without being checked."}}
+            yield _ev("step", kind=kind, step=step)
+        yield _ev("run_done", bypass=True)
+        return
     for action, rationale, a_tele in proposals:
         kind = action["type"].replace("book_", "")
         yield _ev("proposal", kind=kind, action=action, rationale=rationale)
         pending_tele = a_tele
-        for g in guard_stream(mandate, action, _halt_reason(controls, action)):
+        gkw = {} if max_corrections is None else {"max_corrections": max_corrections}
+        for g in guard_stream(mandate, action, _halt_reason(controls, action), **gkw):
             e = g.pop("event")
             if e != "audit":
                 yield _ev(e, kind=kind, **g)
@@ -118,8 +178,8 @@ def run_stream(intent, proposals, request_text=None):
             step = {"action": g["action"], "audit": g["audit"], **({"correction_attempt": g["attempt"]} if g["attempt"] else {})}
             agent_tele = g.get("replan_telemetry") or pending_tele
             pending_tele = None
-            _log_steps(intent, [step], agent_tele)
-            yield _ev("step", kind=kind, step=step)
+            _log_steps(intent, [step], agent_tele, meta)
+            yield _ev("step", kind=kind, step=step, agent_cost_usd=(agent_tele or {}).get("cost_usd", 0))
     yield _ev("run_done")
 
 
@@ -148,11 +208,14 @@ def _scenario_proposals(mandate, name):
 
 
 @app.route("/stream/request", methods=["POST", "OPTIONS"])
+@limited
 def stream_request():
     """Gemini-driven agent: plain-English request -> A2A discovery -> Gemini picks each leg -> guarded, streamed."""
     if request.method == "OPTIONS":
         return ("", 204)
-    text = ((request.get_json(silent=True) or {}).get("text") or "").strip()[:500]
+    body = request.get_json(silent=True) or {}
+    text = (body.get("text") or "").strip()[:500]
+    requester, enforce = body.get("requester"), body.get("enforce", True) is not False
     intent = _verified_intent()
     if not intent:
         return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
@@ -172,11 +235,12 @@ def stream_request():
             yield _ev("planner_fallback", message=f"{type(e).__name__}")
             plan, meta = planner.fallback(mandate), None
         proposals = [(a, why, meta if i == 0 else None) for i, (a, why) in enumerate(plan)]
-        yield from run_stream(intent, proposals, text)
+        yield from run_stream(intent, proposals, text, requester=requester, enforce=enforce)
     return _stream_response(gen())
 
 
 @app.route("/stream/scenario", methods=["POST", "OPTIONS"])
+@limited
 def stream_scenario():
     """Scripted 'rogue agent' scenarios and the clean trip, streamed."""
     if request.method == "OPTIONS":
@@ -184,8 +248,10 @@ def stream_scenario():
     intent = _verified_intent()
     if not intent:
         return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
-    name = (request.get_json(silent=True) or {}).get("name", "trip")
-    return _stream_response(run_stream(intent, _scenario_proposals(intent["constraints"], name)))
+    body = request.get_json(silent=True) or {}
+    name = body.get("name", "trip")
+    return _stream_response(run_stream(intent, _scenario_proposals(intent["constraints"], name),
+                                       requester=body.get("requester"), enforce=body.get("enforce", True) is not False))
 
 
 @app.route("/run/<scenario>", methods=["GET", "POST"])
@@ -233,6 +299,114 @@ def approve(entry_id):
 @app.route("/reject/<entry_id>", methods=["POST"])
 def reject(entry_id):
     return _resolve_review(entry_id, False)
+
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Integration endpoint: any agent (or form) asks "may I do this?" and gets a verdict, an AP2 chain and a receipt.
+_TYPES = {"book_flight": "supplier-agent-1", "book_hotel": "hotel-supplier-1", "book_transport": "transport-supplier-1"}
+_DECISION = {"MATCH": "allow", "REVIEW": "escalate", "DRIFT": "block"}
+
+
+def _validate_action(a, default_destination):
+    """Whitelist + bound every field a caller can send; the auditor only ever sees a clean, size-limited action."""
+    if not isinstance(a, dict) or a.get("type") not in _TYPES:
+        raise ValueError("action.type must be one of " + ", ".join(_TYPES))
+    try:
+        price = float(a.get("price"))
+    except (TypeError, ValueError):
+        raise ValueError("action.price must be a number")
+    if not 0 <= price <= 1_000_000:
+        raise ValueError("action.price out of range")
+    out = {"type": a["type"], "supplier": _clean(a.get("supplier") or _TYPES[a["type"]], 40),
+           "vendor": _clean(a.get("vendor") or "", 60), "price": int(price) if price.is_integer() else price,
+           "destination": _clean(a.get("destination") or default_destination, 40)}
+    if not out["vendor"]:
+        raise ValueError("action.vendor is required")
+    if a.get("class"):
+        out["class"] = _clean(a["class"], 20).lower()
+    if isinstance(a.get("refundable"), bool):
+        out["refundable"] = a["refundable"]
+    if a.get("note"):
+        out["note"] = _clean(a["note"], 200)
+    if isinstance(a.get("charges"), list):
+        out["charges"] = [float(x) for x in a["charges"][:5] if isinstance(x, (int, float))]
+    if isinstance(a.get("extra_charges"), list):
+        out["extra_charges"] = [{"item": _clean(x.get("item", "extra"), 60), "amount": float(x.get("amount", 0))}
+                                for x in a["extra_charges"][:5] if isinstance(x, dict)]
+    return out
+
+
+@app.route("/v1/authorize", methods=["POST", "OPTIONS"])
+@limited
+def v1_authorize():
+    """POST {action, requester?, request?, correct?} -> {decision, verdict, explanation, violations, counterfactual, ap2,
+    cart_mandate, provenance_id, steps}. Optional API key: set ANVIL_API_KEY and send X-Anvil-Key."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+    key = os.environ.get("ANVIL_API_KEY")
+    if key and request.headers.get("X-Anvil-Key") != key:
+        return jsonify({"error": "missing or wrong X-Anvil-Key"}), 401
+    intent = _verified_intent()
+    if not intent:
+        return jsonify({"error": "mandate signature invalid - refusing to proceed"}), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        action = _validate_action(body.get("action"), intent["constraints"]["destination"])
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    steps = [e["step"] for e in run_stream(intent, [(action, "submitted via /v1/authorize", None)], body.get("request"),
+                                           requester=body.get("requester"), origin="user",
+                                           max_corrections=2 if body.get("correct", True) else 0) if e["event"] == "step"]
+    final = steps[-1]
+    a = final["audit"]
+    return jsonify({"decision": _DECISION.get(a["verdict"], "block"), "verdict": a["verdict"], "severity": a["severity"],
+                    "explanation": a["explanation"], "violations": a["violations"], "counterfactual": final.get("counterfactual"),
+                    "ap2": a.get("ap2"), "cart_mandate": final.get("cart_mandate"), "provenance_id": final.get("provenance_id"),
+                    "corrected": len(steps) > 1, "steps": steps})
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Simulated live traffic: browsers with the Live tab open ask for a tick; a global lease keeps it to one at a time.
+SIM_MIN_GAP_S = int(os.environ.get("ANVIL_SIM_MIN_GAP_S", "20"))
+SIM_DAILY_CAP = int(os.environ.get("ANVIL_SIM_DAILY_CAP", "1500"))
+SIM_REQUESTERS = ["Priya S.", "Arjun K.", "Meera N.", "Rohan D.", "Kavya R.", "Imran A."]
+SIM_PLAN = [(44, "scenario", "trip"),
+            (14, "request", "Book my Mumbai trip with the cheapest options that fit our travel policy."),
+            (8, "request", "I have a brutal week ahead. Book me business class on Emirates and the best hotel you can find."),
+            (6, "request", "Cheapest possible everything, I don't care about refunds or the usual suppliers."),
+            (8, "scenario", "Over-cap"), (5, "scenario", "Fare split"), (5, "scenario", "Unrelated add-on"),
+            (4, "scenario", "Adversarial: fake pre-approval"), (3, "scenario", "Adversarial: prompt injection"), (3, "scenario", "business")]
+
+
+@app.route("/api/sim/tick", methods=["POST", "OPTIONS"])
+def sim_tick():
+    """Run ONE simulated agent request through the real pipeline (labelled origin=simulated). Returns when it is done."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+    lease = sim_lease(SIM_MIN_GAP_S, SIM_DAILY_CAP)
+    if not lease["ok"]:
+        return jsonify({"ran": False, **lease})
+    intent = _verified_intent()
+    if not intent:
+        return jsonify({"ran": False, "reason": "mandate signature invalid"}), 403
+    _, kind, what = random.choices(SIM_PLAN, weights=[w for w, _, _ in SIM_PLAN])[0]
+    who = random.choice(SIM_REQUESTERS)
+    mandate = intent["constraints"]
+    try:
+        if kind == "scenario":
+            proposals, text = _scenario_proposals(mandate, what), None
+        else:
+            gathered = planner.gather_offers(mandate)
+            try:
+                plan, meta = planner.choose(mandate, what, gathered)
+            except Exception:
+                plan, meta = planner.fallback(mandate), None
+            proposals, text = [(a, why, meta if i == 0 else None) for i, (a, why) in enumerate(plan)], what
+        steps = sum(1 for e in run_stream(intent, proposals, text, requester=who, origin="simulated") if e["event"] == "step")
+    except Exception as e:
+        return jsonify({"ran": False, "reason": f"{type(e).__name__}: {str(e)[:120]}"}), 200
+    return jsonify({"ran": True, "requester": who, "what": text or what, "steps": steps, **lease})
 
 
 @app.route("/api/eval")

@@ -29,6 +29,12 @@ AI agents already book travel and spend money on a company's behalf, but nothing
 | Working prototype | Live dashboard (Mission Control + Governance) driving real Gemini calls |
 | Deployed on GCP | Cloud Run (`anvil`, `anvil-suppliers`), Firestore, Firebase Hosting |
 
+## The app: four tabs
+- **Live** is the product as a team would use it: a real-time decision feed (Firestore live listener), KPIs, an approvals inbox, system health, and a **New spend request** panel (a purchase form that calls `/v1/authorize`, or a natural-language request to the Gemini booking agent). The page opens with a **demo sign-in** (Employee / Finance manager / Operator, password `demo`): roles only change what the page lets you click and are **not real authentication**. While the Live tab is open, **simulated agent traffic** runs through the real pipeline every ~25 s (labelled `SIMULATED`, server-side lease so many viewers cause one request, auto-stops after 10 idle minutes).
+- **Governance** is the operator console: scorecards, kill switch (pauses auto-expire), cost of governing, AP2 mandates, the evidence pack and the scoreboard.
+- **Showcase** is the presenter's stage: scenario buttons, the animated flow diagram, an **Anvil enforcement ON/OFF** switch (OFF simulates an unprotected agent and shows the leaked dollars), a run-summary banner, and an integration snippet.
+- **Replay** is a seven-step **guided demo** with captions (autopilot on the live system) and **recorded runs** captured from the real system (`scripts/record_runs.py`), replayed with their original timing so they work even without the network or Gemini.
+
 ## What is in the product
 - **Mission Control:** type a request in plain English; a Gemini booking agent discovers supplier agents over A2A, chooses offers, and every proposal is audited live. A flow diagram, event stream and decision cards show each step as it happens. Rogue-agent simulations (fare split, hidden add-on, fake approval note, prompt injection) show enforcement.
 - **Governance console:** agent scorecards and trust scores, **kill switch** (pause an agent or revoke the mandate; blocked without a model call and logged to the chain), spend vs authorized caps, failure taxonomy, **cost of governing** (tokens, latency p50/p95, cost per audit, return on governance) and a downloadable **evidence pack**.
@@ -141,6 +147,8 @@ Set `ANVIL_SIGNING_KEY` (Cloud Run env var) for a real signing key; the `dev-onl
 
 | Endpoint | What it does |
 |---|---|
+| `POST /v1/authorize` | Integration endpoint: an agent (or a form) submits one action and gets `{decision, verdict, explanation, counterfactual, ap2, cart_mandate}`. Optional `X-Anvil-Key` when `ANVIL_API_KEY` is set |
+| `POST /api/sim/tick` | Runs one simulated agent request (global lease: min 20 s apart, daily cap) |
 | `POST /stream/request` | Plain-English request → Gemini agent → guarded, streamed events (NDJSON) |
 | `POST /stream/scenario` | Scripted rogue-agent scenarios, streamed |
 | `GET /api/ap2`, `/api/ap2/verify/<id>` | AP2 layer status and independent re-verification of a stored chain |
@@ -154,7 +162,7 @@ Set `ANVIL_SIGNING_KEY` (Cloud Run env var) for a real signing key; the `dev-onl
 | `GET /api/eval` | Cached scoreboard (`?refresh=1` recomputes) |
 
 ## Known limits (hackathon scope)
-- The demo endpoints and Firestore reads are public so judges can click through; lock both down for real use.
+- The demo endpoints and Firestore reads are public so judges can click through; lock both down for real use. The in-app sign-in is a demo (no real authentication) and the Gemini-calling endpoints have only a light per-IP rate limit.
 - Agents search hard-coded supplier inventories; the point is the governance layer, not the marketplace.
 - Gemini cost figures are estimates from list prices (configurable via env), not billing data.
 - The audit trail is tamper-evident (hash chain), not tamper-proof: someone with database write access could rebuild it. Signing entries is the production step.

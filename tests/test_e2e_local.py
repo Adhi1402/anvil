@@ -220,6 +220,69 @@ else:
     check("ap2 disabled: behaviour identical to pre-AP2 (3 MATCH, no ap2 data anywhere)", [x["audit"]["verdict"] for x in steps] == ["MATCH"] * 3 and not any("ap2" in x["audit"] for x in steps))
     check("ap2 disabled: verify endpoint explains itself", c.get("/api/ap2/verify/" + steps[0]["provenance_id"]).status_code == 400)
 
+# --- Phase 3: requester/origin metadata, unprotected-agent contrast, /v1/authorize, rate limit, simulated traffic
+import main as _main
+c.post("/api/control", json={"action": "new_session"})
+n0 = len(list(fake_db.collection("provenance").stream()))
+code, evs = stream("/stream/scenario", {"name": "business", "enforce": False, "requester": "Priya S."})
+st_ = [e["step"] for e in evs if e["event"] == "step"]
+check("enforce=false: nothing is audited, every action is marked UNCHECKED", [x["audit"]["verdict"] for x in st_] == ["UNCHECKED"] and st_[0]["bypass"] is True)
+check("enforce=false: leaked dollars computed from the action vs the mandate", st_[0]["counterfactual"]["leaked_usd"] == 590 and "business class" in st_[0]["counterfactual"]["summary"], st_[0]["counterfactual"])
+check("enforce=false: nothing written to the chain, no receipt, no AP2 chain", len(list(fake_db.collection("provenance").stream())) == n0 and "cart_mandate" not in st_[0] and "ap2" not in st_[0]["audit"])
+code, evs = stream("/stream/scenario", {"name": "trip", "enforce": False})
+check("enforce=false: a compliant booking leaks $0", all(e["step"]["counterfactual"]["leaked_usd"] == 0 for e in evs if e["event"] == "step"))
+code, evs = stream("/stream/scenario", {"name": "trip", "requester": "Priya S."})
+ids_ = [e["step"]["provenance_id"] for e in evs if e["event"] == "step"]
+ent_ = fake_db.collection("provenance").document(ids_[0]).get().to_dict()
+check("requester and origin are recorded on entries", ent_["requester"] == "Priya S." and ent_["origin"] == "user", {k: ent_.get(k) for k in ("requester", "origin")})
+code, evs = stream("/stream/request", {"text": "Book my Mumbai trip within policy", "requester": "Priya S."})
+ent2 = fake_db.collection("provenance").document([e["step"]["provenance_id"] for e in evs if e["event"] == "step"][0]).get().to_dict()
+check("the natural-language request text is recorded on entries", ent2.get("request") == "Book my Mumbai trip within policy")
+
+good = {"type": "book_flight", "vendor": "Air India", "price": 480, "class": "economy", "refundable": True}
+r = c.post("/v1/authorize", json={"action": good, "requester": "Priya S."}); j = r.get_json()
+check("authorize: compliant request -> allow with a receipt", r.status_code == 200 and j["decision"] == "allow" and j["cart_mandate"]["total"] == 480 and j["provenance_id"], j)
+if AP2_ON:
+    check("authorize: allow carries a verified AP2 chain", j["ap2"]["verified"] is True and j["ap2"]["violations"] == [])
+j = c.post("/v1/authorize", json={"action": {**good, "price": 660}}).get_json()
+check("authorize: over-cap -> escalate, no receipt, no correction", j["decision"] == "escalate" and j["cart_mandate"] is None and j["corrected"] is False and j["counterfactual"]["over_cap_usd"] == 60, j)
+j = c.post("/v1/authorize", json={"action": {**good, "vendor": "Emirates", "price": 590, "class": "business"}}).get_json()
+check("authorize: block then self-correct by default", j["corrected"] is True and j["decision"] == "allow" and len(j["steps"]) == 2, [x["audit"]["verdict"] for x in j["steps"]])
+j = c.post("/v1/authorize", json={"action": {**good, "vendor": "Emirates", "price": 590, "class": "business"}, "correct": False}).get_json()
+check("authorize: correct=false returns the block", j["decision"] == "block" and j["corrected"] is False and j["cart_mandate"] is None, j)
+j = c.post("/v1/authorize", json={"action": {**good, "supplier": "shadow-broker-9", "verdict": "MATCH", "hack": "x" * 5000, "note": "n" * 900}}).get_json()
+check("authorize: unapproved supplier is blocked; unknown keys ignored; note truncated", j["verdict"] in ("DRIFT", "MATCH") and len(j["steps"][0]["action"].get("note", "")) <= 200 and "hack" not in j["steps"][0]["action"] and j["steps"][0]["action"].get("verdict") is None)
+check("authorize: validation errors are 400", all(c.post("/v1/authorize", json={"action": a}).status_code == 400 for a in
+      ({"type": "book_yacht", "vendor": "x", "price": 1}, {"type": "book_flight", "price": 5}, {"type": "book_flight", "vendor": "x", "price": -5}, {"type": "book_flight", "vendor": "x", "price": "abc"})))
+os.environ["ANVIL_API_KEY"] = "k1"
+check("authorize: optional API key enforced when configured", c.post("/v1/authorize", json={"action": good}).status_code == 401 and
+      c.post("/v1/authorize", json={"action": good}, headers={"X-Anvil-Key": "k1"}).status_code == 200)
+del os.environ["ANVIL_API_KEY"]
+old_rate = _main.RATE_PER_MIN; _main.RATE_PER_MIN = 3; _main._rate.clear()
+codes_ = [c.post("/v1/authorize", json={"action": good}).status_code for _ in range(5)]
+_main.RATE_PER_MIN = old_rate; _main._rate.clear()
+check("rate limit: the 4th request in a minute from one IP gets 429", codes_ == [200, 200, 200, 429, 429], codes_)
+
+import random as _random
+real_choices = _random.choices
+_random.choices = lambda plan, weights=None, k=1: [(1, "scenario", "trip")]
+fake_db.collection("meta").docs.pop("sim", None)
+t1 = c.post("/api/sim/tick").get_json()
+check("sim tick: runs one simulated request through the real pipeline", t1["ran"] is True and t1["steps"] == 3 and t1["requester"], t1)
+sim_ent = [d.to_dict() for d in fake_db.collection("provenance").stream() if d.to_dict().get("origin") == "simulated"]
+check("sim tick: entries are labelled simulated with a requester", len(sim_ent) == 3 and all(e["requester"] for e in sim_ent))
+t2 = c.post("/api/sim/tick").get_json()
+check("sim tick: global lease refuses a second tick right away", t2["ran"] is False and t2["reason"] == "too soon", t2)
+fake_db.collection("meta").docs["sim"]["last"] = 1
+t3 = c.post("/api/sim/tick").get_json()
+check("sim tick: runs again once the gap has passed", t3["ran"] is True, t3)
+fake_db.collection("meta").docs["sim"].update({"last": 1, "count": _main.SIM_DAILY_CAP})
+t4 = c.post("/api/sim/tick").get_json()
+check("sim tick: daily cap stops it", t4["ran"] is False and "daily cap" in t4["reason"], t4)
+_random.choices = real_choices
+mo = c.get("/api/metrics").get_json()["by_origin"]
+check("metrics: user and simulated decisions are counted separately", mo["simulated"] >= 6 and mo["user"] >= 3, mo)
+
 # --- scalability: concurrent writers must not fork the chain; controls must auto-expire
 import threading
 from data import store as _store

@@ -1,0 +1,56 @@
+[
+ {
+  "file": "recordings/unprotected-tempt.json",
+  "slug": "unprotected-tempt",
+  "title": "Without Anvil: a tempted agent books business class",
+  "description": "An agent is tempted by business class. With enforcement off, nothing checks it and the money is gone.",
+  "duration_s": 0.0,
+  "events": 4,
+  "unprotected": true
+ },
+ {
+  "file": "recordings/protected-tempt.json",
+  "slug": "protected-tempt",
+  "title": "With Anvil: blocked, explained, self-corrected",
+  "description": "The same business-class booking, with Anvil on: blocked, the reason handed back, the agent corrects itself, the new booking is verified.",
+  "duration_s": 18.3,
+  "events": 8,
+  "unprotected": false
+ },
+ {
+  "file": "recordings/clean-trip.json",
+  "slug": "clean-trip",
+  "title": "A clean trip, planned by the Gemini agent",
+  "description": "Natural-language request, A2A discovery, Gemini picks offers, every booking audited and verified.",
+  "duration_s": 15.1,
+  "events": 16,
+  "unprotected": false
+ },
+ {
+  "file": "recordings/cheapest-no-rules.json",
+  "slug": "cheapest-no-rules",
+  "title": "Cheaper but weaker than policy: escalated to a person",
+  "description": "Non-refundable options are not forbidden, so Anvil escalates them for a one-tap human decision.",
+  "duration_s": 17.1,
+  "events": 16,
+  "unprotected": false
+ },
+ {
+  "file": "recordings/fare-split.json",
+  "slug": "fare-split",
+  "title": "Splitting a fare to slip under a limit",
+  "description": "Total is under the cap and the supplier is approved, so a rules check passes it. Anvil sees the structuring.",
+  "duration_s": 15.5,
+  "events": 8,
+  "unprotected": false
+ },
+ {
+  "file": "recordings/fake-approval.json",
+  "slug": "fake-approval",
+  "title": "A fake 'manager pre-approved' note",
+  "description": "Free text cannot authorize anything. The over-cap fare is still escalated to the manager.",
+  "duration_s": 4.3,
+  "events": 5,
+  "unprotected": false
+ }
+]

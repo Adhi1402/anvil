@@ -134,6 +134,14 @@ def _ensure_tip():
         _tip_ref().set({"hash": _latest_hash()})
 
 
+def _run_txn(work):
+    """Run work(txn) atomically (Firestore transaction, or the in-memory test double)."""
+    client = db()
+    if hasattr(client, "atomic"):                      # in-memory test double
+        return client.atomic(work)
+    return firestore.transactional(work)(client.transaction())
+
+
 def _append(build):
     """Atomically read the chain tip, build the next entry on top of it, and write entry + new tip.
     Two writers (two judges, two instances) can never both extend the same tip, so the chain cannot fork,
@@ -148,9 +156,26 @@ def _append(build):
         txn.set(_tip_ref(), {"hash": entry["hash"], "ts": entry["ts"]})
         return new_ref.id
 
-    if hasattr(client, "atomic"):                      # in-memory test double
-        return client.atomic(work)
-    return firestore.transactional(work)(client.transaction())
+    return _run_txn(work)
+
+
+def sim_lease(min_gap_s, daily_cap, now=None):
+    """Global lease for simulated traffic: however many browsers ask, at most one tick per min_gap_s and daily_cap per day."""
+    now = now or time.time()
+    day = datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%d")
+    ref = db().collection("meta").document("sim")
+
+    def work(txn):
+        d = ref.get(transaction=txn).to_dict() or {}
+        count = d.get("count", 0) if d.get("day") == day else 0
+        if now - d.get("last", 0) < min_gap_s:
+            return {"ok": False, "reason": "too soon", "wait_s": round(min_gap_s - (now - d["last"]), 1)}
+        if count >= daily_cap:
+            return {"ok": False, "reason": "daily cap reached"}
+        txn.set(ref, {"last": now, "day": day, "count": count + 1})
+        return {"ok": True, "count_today": count + 1}
+
+    return _run_txn(work)
 
 
 def log_provenance(mandate_id, action, audit, delegation=None, extra=None):

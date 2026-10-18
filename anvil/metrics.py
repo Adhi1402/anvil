@@ -72,8 +72,11 @@ def metrics_summary(entries, controls=None, mandate=None):
            "constraint_blocks": sum(1 for e in entries if e.get("gate") == "ap2-constraints"),
            "manager_overrides": sum(1 for a in ap2s if a.get("manager_override")),
            "errors": sum(1 for a in ap2s if a.get("error"))}
+    by_origin = {"user": sum(1 for e in primary if e.get("origin", "user") == "user"),
+                 "simulated": sum(1 for e in primary if e.get("origin") == "simulated")}
     return {
         "since": since,
+        "by_origin": by_origin,
         "ap2": ap2,
         "totals": {"actions": len(primary), "match": sum(e["verdict"] == "MATCH" for e in primary),
                    "review": sum(e["verdict"] == "REVIEW" for e in primary),

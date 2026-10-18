@@ -98,3 +98,24 @@ Rollback: A2A -> set env `ANVIL_A2A_OFFICIAL=0`. Secret -> re-add plain env var 
 - 2026-10-18 (later): Secret Manager DONE: secret `anvil-ap2-orch-key` (v1), accessor role to the Cloud Run runtime SA (`733520529727-compute@developer.gserviceaccount.com`), service mounts it as env `ANVIL_AP2_ORCH_KEY` via `--set-secrets` (plain env var removed), revision `anvil-00020`. Rollback: `gcloud run services update anvil --region us-central1 --remove-secrets ANVIL_AP2_ORCH_KEY --update-env-vars ANVIL_AP2_ORCH_KEY=<base64 of ~/.anvil/ap2-orchestrator.jwk>`.
 - 2026-10-18: FOUND + FIXED flaky verdict: Uber $40 transport flipped MATCH/REVIEW (~50%) because the audit prompt did not say refundability does not apply to ground transport. Prompt fixed; live: 12/12 clean trips all-MATCH, eval 26 scenarios x4: 19/19 vs 10/19, 0 false blocks, 26/26 stable. `smoke_live.py` now checks 8 concurrent clean trips (24 legs all MATCH), chain intact, `/api/a2a` official.
 - Current live: Cloud Run `anvil` (min-instances 1, concurrency 8, max 10) and `anvil-suppliers` (min-instances 1). RESET min-instances to 0 after judging: `gcloud run services update anvil --region us-central1 --min-instances 0` (and same for anvil-suppliers).
+
+## 12. Phase 3 (2026-10-18): "real app" Live tab, Showcase/Replay tabs, dummy login, ON/OFF contrast, /authorize
+User decisions: Live tab shows SIMULATED live traffic (labelled); tabs = Live | Governance | Showcase | Replay; add a DUMMY login (personas) so a user can sign in and put in a real transaction.
+Design:
+- Dummy login (UI only, NOT real auth; say so on screen): personas Priya (Employee: submit requests), Rahul (Finance manager: approvals), Anika (Operator: controls). Roles gate buttons in the UI only; backend stays open for judging.
+- Live tab = ops console: KPI strip, live decision feed (Firestore realtime; `SIMULATED` badge), approvals inbox, system health; employee gets a "Submit a spend request" form (-> `POST /v1/authorize`) plus a natural-language agent box (-> `/stream/request`).
+- Simulated traffic: browser calls `POST /api/sim/tick` every ~25 s ONLY while the Live tab is visible and the user is active (idle auto-stop 10 min); server lease in Firestore `meta/sim` (min gap 20 s globally, daily cap) so N viewers cause one tick; entries carry `origin: "simulated"`, `requester`.
+- Showcase tab = the existing stage (command bar, chips, flow diagram, cards) + Enforcement ON/OFF switch (`enforce:false` => no audit, no logging, computes leaked $ only) + integration snippet. Replay tab = guided demo autopilot with captions + recorded real runs (static JSON in `dashboard/public/recordings/`). The stage DOM is moved between tabs.
+- Backend additions: `requester`/`origin`/`request` on entries, `enforce` flag, `POST /v1/authorize` (single action -> verdict + AP2 + receipt; optional `ANVIL_API_KEY`), `POST /api/sim/tick`, metrics `by_origin`.
+Status (tick when done):
+- [x] backend: requester/origin/enforce + tests
+- [x] backend: /v1/authorize + tests (+ per-IP rate limit `ANVIL_RATE_PER_MIN`)
+- [x] backend: /api/sim/tick lease + tests
+- [x] deploy backend + smoke (revision anvil-00022; later revisions keep AP2/A2A/secret config)
+- [x] UI: login + tabs + Live tab (+ employee form, approvals inbox)
+- [x] UI: Showcase (ON/OFF, run summary banner) + Replay (guided demo, recordings)
+- [x] recordings captured from live (`scripts/record_runs.py` -> `dashboard/public/recordings/`); browser tests (puppeteer, scratch) pass on the deployed site; hosting deployed
+- [ ] second-domain eval row (optional, after the above)
+- [ ] docs/guide/README/deck updated; commit
+Rollback: hosting versions via `firebase hosting:rollback`; backend `gcloud run services update-traffic anvil --region us-central1 --to-revisions <prev>=100` (last good before this phase: `anvil-00021`-ish, check `gcloud run revisions list`).
+- 2026-10-18 (phase 3 done): Live/Governance/Showcase/Replay UI + demo sign-in live on Hosting. Guided demo (7 steps) passes end-to-end in a real browser against the live API. Backend: `/v1/authorize`, `/api/sim/tick`, `enforce:false`, requester/origin on entries. Browser test scripts lived in the scratchpad (p3a/p3b/p3c .mjs; puppeteer-core + /usr/bin/google-chrome); recreate if needed: sign in via `.persona`, wait for `.tagsim` in `#feed`, etc. Remaining optional: second-domain eval row; phone-approval QR; guide artifact refresh.

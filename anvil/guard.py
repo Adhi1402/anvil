@@ -19,12 +19,12 @@ def halted_result(reason):
             "explanation": f"Blocked by manager control, no audit needed: {reason}."}
 
 
-def guard_stream(mandate, action, halt=None):
+def guard_stream(mandate, action, halt=None, max_corrections=MAX_CORRECTIONS):
     yield {"event": "audit_start", "action": action}
     result = halted_result(halt) if halt else audited(mandate, action)
     yield {"event": "audit", "action": action, "audit": result, "attempt": 0}
     attempts = 0
-    while result["verdict"] == "DRIFT" and not halt and attempts < MAX_CORRECTIONS:
+    while result["verdict"] == "DRIFT" and not halt and attempts < max_corrections:
         attempts += 1
         reason = "; ".join(result["violations"]) or result["explanation"]
         yield {"event": "correction_start", "reason": reason, "attempt": attempts}
