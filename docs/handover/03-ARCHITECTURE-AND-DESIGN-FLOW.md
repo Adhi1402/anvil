@@ -10,7 +10,7 @@ A manager **signs a mandate** (what an agent may do). Autonomous agents propose 
 ```mermaid
 flowchart LR
   subgraph Browser["Browser · Firebase Hosting (static)"]
-    UI["Dashboard: Live · Governance · Showcase · Replay\nFirestore web SDK (live feed)"]
+    UI["Web app: employee · manager · operator workspaces + Demo studio\nFirestore web SDK (live feed)"]
   end
 
   subgraph CR1["Cloud Run · anvil (Flask/gunicorn)"]

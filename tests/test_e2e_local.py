@@ -244,6 +244,16 @@ r = c.post("/v1/authorize", json={"action": good, "requester": "Priya S."}); j =
 check("authorize: compliant request -> allow with a receipt", r.status_code == 200 and j["decision"] == "allow" and j["cart_mandate"]["total"] == 480 and j["provenance_id"], j)
 if AP2_ON:
     check("authorize: allow carries a verified AP2 chain", j["ap2"]["verified"] is True and j["ap2"]["violations"] == [])
+# --- approver identity, comment, and no self-approval
+j_ = c.post("/v1/authorize", json={"action": {**good, "price": 660}, "requester": "Rahul"}).get_json()
+rid_ = j_["provenance_id"]
+r_ = c.post(f"/approve/{rid_}", json={"approver": "Rahul"})
+check("approve: a requester cannot decide their own request (403)", r_.status_code == 403 and "own request" in r_.get_json()["error"], r_.get_json())
+r_ = c.post(f"/approve/{rid_}", json={"approver": "Adhish Sekar", "comment": "client visit, fine"})
+dec_ = next(d.to_dict() for d in fake_db.collection("provenance").stream() if d.to_dict().get("action", {}).get("re_consent_for") == rid_)
+check("approve: decision records approver, comment and the original requester", r_.status_code == 200 and dec_["approver"] == "Adhish Sekar" and dec_["comment"] == "client visit, fine" and dec_["requester"] == "Rahul" and "Adhish Sekar" in dec_["explanation"], dec_)
+j_ = c.post("/v1/authorize", json={"action": {**good, "price": 660}, "requester": "Guest judge"}).get_json()
+check("approve: a guest judge may decide their own request (demo role switch)", c.post(f"/reject/{j_['provenance_id']}", json={"approver": "Guest judge"}).status_code == 200)
 j = c.post("/v1/authorize", json={"action": {**good, "price": 660}}).get_json()
 check("authorize: over-cap -> escalate, no receipt, no correction", j["decision"] == "escalate" and j["cart_mandate"] is None and j["corrected"] is False and j["counterfactual"]["over_cap_usd"] == 60, j)
 j = c.post("/v1/authorize", json={"action": {**good, "vendor": "Emirates", "price": 590, "class": "business"}}).get_json()

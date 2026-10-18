@@ -274,13 +274,25 @@ def _resolve_review(entry_id, approved):
         return jsonify({"error": "only REVIEW entries need approval"}), 400
     if list(db().collection("provenance").where(filter=FieldFilter("action.re_consent_for", "==", entry_id)).limit(1).stream()):
         return jsonify({"error": "already resolved"}), 409
+    body = request.get_json(silent=True) or {}
+    approver, comment = _clean(body.get("approver"), 40), _clean(body.get("comment"), 200)
+    if approver and e.get("requester") and approver.lower() == str(e["requester"]).lower() and approver != "Guest judge":
+        return jsonify({"error": "You cannot approve or reject your own request; another approver must decide."}), 403
     verdict = "APPROVED" if approved else "REJECTED"
+    who = approver or "a manager"
     audit_like = {"verdict": verdict, "severity": "none", "violations": [],
-                  "explanation": ("Human re-consented: manager approved the escalated action."
-                                  if approved else "Manager rejected the escalated action; it will not proceed.")}
+                  "explanation": (f"Human re-consented: {who} approved the escalated action."
+                                  if approved else f"{who} rejected the escalated action; it will not proceed.")}
     intent = get_mandate()
     action = {**e["action"], "re_consent_for": entry_id}
     extra = {"intent_signature": intent["signature"]}
+    for k in ("requester", "origin", "request"):          # the decision stays attached to the person who asked
+        if e.get(k):
+            extra[k] = e[k]
+    if approver:
+        extra["approver"] = approver
+    if comment:
+        extra["comment"] = comment
     if approved:                                   # AP2: a human-approved REVIEW earns a Cart Mandate
         extra["cart_mandate"] = cart_mandate(intent, e["action"])
         ap2 = ap2_layer.issue_for_override(intent["constraints"], e["action"])

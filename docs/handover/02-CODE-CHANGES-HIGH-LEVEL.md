@@ -34,8 +34,8 @@ This is a map of *what changed and where*, not a line-by-line review. For design
 | `ap2/` | Vendored official AP2 SDK (Apache-2.0) | Unmodified; `NOTICE-VENDORED.md` has source and commit |
 | `data/ap2_open_mandates.json` | Public artifacts | Manager **public** key + three signed open mandates (no private keys) |
 
-## 3. Frontend (`dashboard/public/index.html`, static, Firebase Hosting)
-Single file (no build step). Four tabs (Live / Governance / Showcase / Replay); demo sign-in with roles; Firestore real-time listener with REST fallback; NDJSON stream consumer driving the flow diagram, cards and run summary; Live feed/inbox/KPIs/health/forms; simulated-traffic driver; guided-demo autopilot and recorded-run player; second-domain scoreboard; light/dark themes; mobile-safe. `dashboard/public/recordings/*.json` are real captured runs.
+## 3. Frontend (`dashboard/public/`: `index.html`, `styles.css`, `app.js`; static, Firebase Hosting, no build step)
+Rewritten on 2026-10-18 as a **role-based app** (`docs/UX-AUDIT.md`). Hash router (`#/home`, `#/approvals`, ...) over per-role menus; employee, finance-manager and operator workspaces; guest "View as" switch; Firestore real-time listener with REST fallback; plain-language statuses with technical detail on demand; confirmation dialogs for kill switch, revoke and new session; inline errors with retry; light and dark themes; phone layout verified at 390 px. The **Demo studio** keeps the NDJSON stream consumer driving the flow diagram, cards and run summary, the guided-demo autopilot, the recorded-run player and the simulated-traffic driver. `dashboard/public/recordings/*.json` are real captured runs. Backend change for the rewrite: `/approve` and `/reject` accept `{approver, comment}`, store them (and the original requester) on the decision entry, and refuse a named approver deciding their own request (403; the Guest judge is exempt so one person can demo both roles).
 
 ## 4. Tests and scripts
 | Path | What it does |

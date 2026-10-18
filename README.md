@@ -29,18 +29,25 @@ To show the mechanism is not travel-specific, the same eval also scores **softwa
 | Problem and why it matters | AI agents already spend company money; nothing checks that they stayed inside what a human approved (deck slides 2-3) |
 | How the solution addresses it | Signed mandate → Gemini audit of every action → deterministic enforcement → self-correction → signed receipt + tamper-evident trail |
 | Google AI integration | **Gemini 2.5 Flash on Vertex AI** is the auditor, the booking agent's planner, and the corrector (`anvil/gemini.py`, `anvil/audit.py`, `agents/planner.py`) |
-| Working prototype | Live dashboard (Live, Governance, Showcase, Replay) driving real Gemini calls |
+| Working prototype | Live web app with three role workspaces (employee, finance manager, operator) plus a Demo studio, driving real Gemini calls |
 | Deployed on GCP | Cloud Run (`anvil`, `anvil-suppliers`), Firestore, Firebase Hosting |
 
-## The app: four tabs
-- **Live** is the product as a team would use it: a real-time decision feed (Firestore live listener), KPIs, an approvals inbox, system health, and a **New spend request** panel (a purchase form that calls `/v1/authorize`, or a natural-language request to the Gemini booking agent). The page opens with a **demo sign-in** (Employee / Finance manager / Operator, password `demo`): roles only change what the page lets you click and are **not real authentication**. While the Live tab is open, **simulated agent traffic** runs through the real pipeline every ~25 s (labelled `SIMULATED`, server-side lease so many viewers cause one request, auto-stops after 10 idle minutes).
-- **Governance** is the operator console: scorecards, kill switch (pauses auto-expire), cost of governing, AP2 mandates, the evidence pack and the scoreboard.
-- **Showcase** is the presenter's stage: scenario buttons, the animated flow diagram, an **Anvil enforcement ON/OFF** switch (OFF simulates an unprotected agent and shows the leaked dollars), a run-summary banner, and an integration snippet.
-- **Replay** is a seven-step **guided demo** with captions (autopilot on the live system) and **recorded runs** captured from the real system (`scripts/record_runs.py`), replayed with their original timing so they work even without the network or Gemini.
+## The app: three roles, one workspace
+Sign in with a demo account (password `demo`; **not real authentication**, roles decide which screens exist) or as a guest judge, who can switch roles with **View as**. What we found wrong with the first UI and what changed: [`docs/UX-AUDIT.md`](docs/UX-AUDIT.md).
+
+| Role | Menu | What they do |
+|---|---|---|
+| **Employee** (Rahul) | My requests · Policy | Ask for a trip in plain English or submit a purchase; follow only their own requests with a plain status and reason; see a manager's decision live |
+| **Finance manager** (Adhish Sekar) | Approvals · My requests · Activity · Spend · Policy | Decide escalated requests with full context (who, why, how far over the limit) and a comment; watch spend against the limits |
+| **Platform operator** (Swathy S) | Overview · Approvals · My requests · Activity · Policy · Agents · Audit trail · Quality · Demo studio | Pause an agent or revoke the policy (kill switch), verify the hash chain and download the evidence pack, read the Anvil-vs-rules scoreboards |
+
+The **Demo studio** (operator and guest only) holds the presentation tools: a scenario lab with an **Anvil enforcement ON/OFF** switch (OFF simulates an unprotected agent and shows the leaked dollars), a seven-step guided demo, recorded runs captured from the real system (`scripts/record_runs.py`) that work without the network or Gemini, and the integration snippet. While a manager, operator or guest has a feed page open, **simulated agent traffic** runs through the real pipeline about every 25 s (labelled *Simulated*; one server-side lease so many viewers cause one request; pauses after 10 idle minutes).
+
+Test it in a real browser: `python scripts/serve_dashboard.py 8100`, then `python scripts/e2e_ui.py http://localhost:8100/index.html` (needs `pip install playwright` and Edge or Chrome; it writes real entries to the backend).
 
 ## What is in the product
-- **Showcase (and the Live tab's request box):** type a request in plain English; a Gemini booking agent discovers supplier agents over A2A, chooses offers, and every proposal is audited live. A flow diagram, event stream and decision cards show each step as it happens. Rogue-agent simulations (fare split, hidden add-on, fake approval note, prompt injection) show enforcement.
-- **Governance console:** agent scorecards and trust scores, **kill switch** (pause an agent or revoke the mandate; blocked without a model call and logged to the chain), spend vs authorized caps, failure taxonomy, **cost of governing** (tokens, latency p50/p95, cost per audit, return on governance) and a downloadable **evidence pack**.
+- **My requests and the Demo studio:** type a request in plain English; a Gemini booking agent discovers supplier agents over A2A, chooses offers, and every proposal is audited live. A flow diagram, event stream and decision cards show each step as it happens. Rogue-agent simulations (fare split, hidden add-on, fake approval note, prompt injection) show enforcement.
+- **Operator pages (Agents, Audit trail, Quality):** agent scorecards and trust scores, **kill switch** (pause an agent or revoke the mandate; blocked without a model call and logged to the chain), spend vs authorized caps, failure taxonomy, **cost of governing** (tokens, latency p50/p95, cost per audit, return on governance) and a downloadable **evidence pack**.
 - **Counterfactual receipts:** every block states what it would have cost ("$590, business class instead of economy, carrier not preferred"), computed deterministically from the action and mandate, not by the model.
 
 ## Architecture
