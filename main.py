@@ -15,6 +15,7 @@ from agents.run import travel_agent, plan_trip
 from agents import planner
 from anvil.audit import audit, rules_baseline
 from anvil import ap2_layer
+from anvil import trip as trip_mod
 from anvil.guard import book_with_guard, guard_stream
 from anvil.impact import counterfactual, impact_summary
 from anvil.metrics import metrics_summary
@@ -222,18 +223,24 @@ def stream_request():
     if not text:
         return jsonify({"error": "empty request"}), 400
     mandate = intent["constraints"]
+    trip = None
+    if body.get("trip") is not None:
+        try:
+            trip = trip_mod.normalize(body["trip"], requester)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
 
     def gen():
-        yield _ev("agent_start", request=text)
-        gathered = planner.gather_offers(mandate)
-        for kind, g in gathered.items():
-            yield _ev("discovered", kind=kind, agent=g["card"], via=g["via"], offers=len(g["offers"]))
+        yield _ev("agent_start", request=text, trip=trip)
+        gathered = planner.gather_offers(mandate, trip)
+        for lid, g in gathered["legs"].items():
+            yield _ev("discovered", kind=g["kind"], leg=lid, agent=g["card"], via=g["via"], offers=len(g["offers"]))
         yield _ev("planning")
         try:
             plan, meta = planner.choose(mandate, text, gathered)
         except Exception as e:
             yield _ev("planner_fallback", message=f"{type(e).__name__}")
-            plan, meta = planner.fallback(mandate), None
+            plan, meta = planner.fallback(mandate, gathered), None
         proposals = [(a, why, meta if i == 0 else None) for i, (a, why) in enumerate(plan)]
         yield from run_stream(intent, proposals, text, requester=requester, enforce=enforce)
     return _stream_response(gen())
@@ -303,6 +310,40 @@ def _resolve_review(entry_id, approved):
     return jsonify({"verdict": verdict, "provenance_id": new_id})
 
 
+@app.route("/withdraw/<entry_id>", methods=["POST"])
+def withdraw(entry_id):
+    """The person who asked takes a request back before anyone has decided it. Recorded like a decision."""
+    doc = db().collection("provenance").document(entry_id).get()
+    if not doc.exists:
+        return jsonify({"error": "no such provenance entry"}), 404
+    e = doc.to_dict()
+    if e["verdict"] != "REVIEW":
+        return jsonify({"error": "only requests waiting for approval can be withdrawn"}), 400
+    body = request.get_json(silent=True) or {}
+    who = _clean(body.get("requester"), 40)
+    if not who or not e.get("requester") or who.lower() != str(e["requester"]).lower():
+        return jsonify({"error": "Only the person who made the request can withdraw it."}), 403
+    if list(db().collection("provenance").where(filter=FieldFilter("action.re_consent_for", "==", entry_id)).limit(1).stream()):
+        return jsonify({"error": "already resolved"}), 409
+    intent = get_mandate()
+    audit_like = {"verdict": "REJECTED", "severity": "none", "violations": [],
+                  "explanation": f"{who} withdrew the request before a decision was made; it will not proceed."}
+    extra = {"intent_signature": intent["signature"], "requester": e["requester"], "approver": who, "withdrawn": True}
+    for k in ("origin", "request"):
+        if e.get(k):
+            extra[k] = e[k]
+    new_id = log_provenance(e["mandate_id"], {**e["action"], "re_consent_for": entry_id, "withdrawn": True}, audit_like,
+                            delegation=delegation_for(intent, e["action"]), extra=extra)
+    return jsonify({"verdict": "REJECTED", "withdrawn": True, "provenance_id": new_id})
+
+
+@app.route("/api/trip-options")
+def trip_options():
+    """What the trip form offers (cities, purposes, cost centres) and the company rules a trip is judged on."""
+    return jsonify({"origins": trip_mod.ORIGINS, "purposes": trip_mod.PURPOSES, "cost_centers": trip_mod.COST_CENTERS,
+                    "policy": trip_mod.POLICY, "today": trip_mod.today().isoformat(), "leg_labels": trip_mod.LEG_LABEL})
+
+
 @app.route("/approve/<entry_id>", methods=["POST"])
 def approve(entry_id):
     return _resolve_review(entry_id, True)
@@ -341,6 +382,7 @@ def _validate_action(a, default_destination):
         out["refundable"] = a["refundable"]
     if a.get("note"):
         out["note"] = _clean(a["note"], 200)
+    out.update(trip_mod.clean_schedule(a))
     if isinstance(a.get("charges"), list):
         out["charges"] = [float(x) for x in a["charges"][:5] if isinstance(x, (int, float))]
     if isinstance(a.get("extra_charges"), list):
@@ -409,11 +451,11 @@ def sim_tick():
         if kind == "scenario":
             proposals, text = _scenario_proposals(mandate, what), None
         else:
-            gathered = planner.gather_offers(mandate)
+            gathered = planner.gather_offers(mandate, trip_mod.default_trip(who, days_ahead=random.choice([3, 10, 14, 14, 21, 30, 45])))
             try:
                 plan, meta = planner.choose(mandate, what, gathered)
             except Exception:
-                plan, meta = planner.fallback(mandate), None
+                plan, meta = planner.fallback(mandate, gathered), None
             proposals, text = [(a, why, meta if i == 0 else None) for i, (a, why) in enumerate(plan)], what
         steps = sum(1 for e in run_stream(intent, proposals, text, requester=who, origin="simulated") if e["event"] == "step")
     except Exception as e:
@@ -577,7 +619,7 @@ def api_verify_tamper():
 
 @app.route("/api/provenance")
 def api_provenance():
-    return jsonify(list_provenance())
+    return jsonify(list_provenance(min(request.args.get("limit", 20, type=int), 300)))
 
 
 if __name__ == "__main__":

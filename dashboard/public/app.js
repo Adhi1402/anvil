@@ -29,7 +29,7 @@ const PERSONAS = {
 };
 const GUEST = { email: "", name: "Guest judge", role: "operator", title: "Guest judge", guest: true };
 const effRole = () => S.session ? (S.session.guest ? S.viewAs : S.session.role) : null;
-const can = cap => ({ approve: ["manager", "operator"], operate: ["operator"] }[cap] || []).includes(effRole());
+const can = cap => ({ approve: ["manager"], operate: ["operator"], emergency: ["manager", "operator"] }[cap] || []).includes(effRole());   // the people who run the agents cannot approve spend
 const myName = () => S.session?.name || "Guest";
 
 /* ============================== api / ui helpers ============================== */
@@ -50,7 +50,7 @@ function confirmDlg(title, text, ok = "Confirm", danger = false) {
   });
 }
 const ICONS = {
-  home: "M3 6h18M3 12h18M3 18h12", approvals: "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3", activity: "M22 12h-4l-3 9L9 3l-3 9H2",
+  home: "M3 6h18M3 12h18M3 18h12", plus: "M12 5v14M5 12h14", approvals: "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3", activity: "M22 12h-4l-3 9L9 3l-3 9H2",
   spend: "M12 20V10M18 20V4M6 20v-4", policy: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
   overview: "M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z", agents: "M4 4h16v16H4zM9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3",
   audit: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z", quality: "M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8.21 13.89 7 23l5-3 5 3-1.21-9.12", demo: "M5 3l14 9-14 9z",
@@ -61,6 +61,7 @@ const ico = n => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path 
 const COLORCLS = { MATCH: "ok", APPROVED: "ok", REVIEW: "warn", DRIFT: "bad", REJECTED: "bad", UNCHECKED: "bad", CONTROL: "info" };
 const LABELS = { MATCH: "Approved", APPROVED: "Approved by manager", REVIEW: "Needs approval", DRIFT: "Blocked", REJECTED: "Rejected", UNCHECKED: "Booked unchecked", CONTROL: "Control" };
 const statusOf = (e, res) => {
+  if (e.verdict === "REVIEW" && res[e.id]?.withdrawn) return { cls: "info", label: "Withdrawn" };
   if (e.verdict === "REVIEW" && res[e.id]) { const r = res[e.id]; return r.verdict === "APPROVED" ? { cls: "ok", label: "Approved" + (r.by ? " by " + r.by : "") } : { cls: "bad", label: "Rejected" + (r.by ? " by " + r.by : "") }; }
   return { cls: COLORCLS[e.verdict] || "info", label: LABELS[e.verdict] || e.verdict };
 };
@@ -69,13 +70,14 @@ const plain = s => effRole() === "operator" ? String(s || "") : String(s || "").
 const short = (s, n = 150) => { s = plain(s); const d = s.indexOf(". "); let t = d > 40 && d < n ? s.slice(0, d + 1) : s; return t.length > n ? t.slice(0, n - 1) + "…" : t; };
 const ago = ts => { const s = Math.max(0, Math.round((Date.now() - new Date(ts)) / 1000)); return s < 45 ? "just now" : s < 3600 ? Math.max(1, Math.round(s / 60)) + " min ago" : s < 86400 ? Math.round(s / 3600) + " h ago" : new Date(ts).toLocaleDateString(); };
 const kindOf = a => (a?.type || "").replace("book_", "");
-const itemTitle = a => `${KINDS[kindOf(a)] || kindOf(a)} · ${a.vendor || ""} · ${usd(a.price)}${kindOf(a) === "hotel" ? "/night" : ""}`;
+const itemTitle = a => { const k = kindOf(a), lab = LEGL[a.leg];
+  return `${lab || KINDS[k] || k} · ${a.vendor || ""}${a.flight_no ? " " + a.flight_no : ""} · ${usd(a.price)}${k === "hotel" ? "/night" + (a.nights > 1 ? ` × ${a.nights}` : "") : ""}`; };
 const inSession = e => e.ts >= (S.controls.session_start || "");
 const isSim = e => e.origin === "simulated";
 const isDecision = e => e.verdict === "APPROVED" || e.verdict === "REJECTED";
 function resolvedMap() {
   const m = {};
-  S.rows.forEach(e => { if (e.action?.re_consent_for) m[e.action.re_consent_for] = { verdict: e.verdict, by: e.approver || "", comment: e.comment || "", ts: e.ts, id: e.id, cart: e.cart_mandate }; });
+  S.rows.forEach(e => { if (e.action?.re_consent_for) m[e.action.re_consent_for] = { verdict: e.verdict, by: e.approver || "", comment: e.comment || "", ts: e.ts, id: e.id, cart: e.cart_mandate, withdrawn: !!e.action.withdrawn }; });
   Object.entries(S.localRes).forEach(([k, v]) => { if (!m[k]) m[k] = v; });
   return m;
 }
@@ -88,8 +90,8 @@ function pendingRows(res) {
 /* ============================== router / shell ============================== */
 const NAV = [
   { id: "overview", label: "Overview", group: "", roles: ["operator"] },
-  { id: "approvals", label: "Approvals", group: "Work", roles: ["manager", "operator"], badge: true },
-  { id: "home", label: "My requests", group: "Work", roles: ["employee", "manager", "operator"] },
+  { id: "approvals", label: "Approvals", group: "Work", roles: ["manager"], badge: true },
+  { id: "home", label: "My trips", group: "Work", roles: ["employee", "manager"] },
   { id: "activity", label: "Activity", group: "Work", roles: ["manager", "operator"] },
   { id: "spend", label: "Spend", group: "Work", roles: ["manager"] },
   { id: "policy", label: "Policy", group: "Work", roles: ["employee", "manager", "operator"] },
@@ -104,7 +106,7 @@ const allowed = id => { const n = NAV.find(x => x.id === id); return !!n && n.ro
 
 function renderNav() {
   const role = effRole(); if (!role) return;
-  const res = resolvedMap(), pend = pendingRows(res).length; let last = "";
+  const res = resolvedMap(), pend = pendingGroups(res).length; let last = "";
   $("nav").innerHTML = NAV.filter(n => n.roles.includes(role)).map(n => {
     const g = n.group && n.group !== last ? `<div class="nav-group">${n.group}</div>` : ""; last = n.group || last;
     return `${g}<a href="#/${n.id}" ${S.page === n.id ? 'aria-current="page"' : ""}>${ico(n.id)}<span>${esc(n.label)}</span>${n.badge && pend ? `<span class="count">${pend}</span>` : ""}</a>`;
@@ -133,7 +135,7 @@ function mountPage() {
   simTickMaybe();
 }
 let rq = 0;
-function refresh() { if (rq) return; rq = requestAnimationFrame(() => { rq = 0; if (!S.session) return; renderNav(); renderBanners(); try { PAGES[S.page]?.update?.(); } catch (e) { console.error(e); } }); }
+function refresh() { if (rq) return; rq = requestAnimationFrame(() => { rq = 0; if (!S.session) return; notifyDecisions(); renderNav(); renderBanners(); try { PAGES[S.page]?.update?.(); } catch (e) { console.error(e); } }); }
 
 function renderBanners() {
   const c = S.controls || {}, out = [];
@@ -170,10 +172,15 @@ document.addEventListener("click", e => { const b = e.target.closest("[data-view
 const fbApp = initializeApp({ apiKey: "AIzaSyCnda1Y64OGWHXepXDwD6PhiGzwNuj1iMs", authDomain: "dazzling-lodge-511607-m0.firebaseapp.com", projectId: "dazzling-lodge-511607-m0", appId: "1:733520529727:web:ee7cd8da0c036d62896b8a" });
 const fdb = initializeFirestore(fbApp, { experimentalAutoDetectLongPolling: true });
 function setConn(ok, text) { $("dot").className = "dot " + (ok ? "on" : "bad"); $("status").textContent = text; }
-onSnapshot(query(collection(fdb, "provenance"), orderBy("ts", "desc"), limit(160)), snap => {
-  S.live = true; S.rows = snap.docs.map(d => ({ id: d.id, ...d.data() })); setConn(true, "Live"); scheduleMetrics(); refresh();
-}, err => setConn(false, "Disconnected"));
-setTimeout(async () => { if (S.live) return; try { S.rows = await api("/api/provenance"); setConn(true, "Connected"); refresh(); } catch { setConn(false, "Offline"); } }, 6000);
+if (new URLSearchParams(location.search).has("api")) {           // pointed at another backend (local development): poll it instead of the production Firestore
+  const poll = async () => { try { const rows = await api("/api/provenance?limit=300"); if (JSON.stringify(rows.map(r => r.id)) !== JSON.stringify(S.rows.map(r => r.id))) { S.rows = rows; scheduleMetrics(); refresh(); } S.live = true; setConn(true, "Connected (custom API)"); } catch { setConn(false, "Offline"); } setTimeout(poll, 1500); };
+  poll();
+} else {
+  onSnapshot(query(collection(fdb, "provenance"), orderBy("ts", "desc"), limit(300)), snap => {
+    S.live = true; S.rows = snap.docs.map(d => ({ id: d.id, ...d.data() })); setConn(true, "Live"); scheduleMetrics(); refresh();
+  }, err => setConn(false, "Disconnected"));
+  setTimeout(async () => { if (S.live) return; try { S.rows = await api("/api/provenance"); setConn(true, "Connected"); refresh(); } catch { setConn(false, "Offline"); } }, 6000);
+}
 
 let metricsTimer = null;
 const scheduleMetrics = () => { clearTimeout(metricsTimer); metricsTimer = setTimeout(loadMetrics, 1500); };
@@ -181,6 +188,7 @@ async function loadMetrics() {
   const slow = setTimeout(() => { S.slow = true; renderBanners(); }, 4000);
   try {
     if (!S.mandate) { try { S.mandate = await api("/api/mandate"); } catch {} }
+    if (!S.tripOpts) { try { S.tripOpts = await api("/api/trip-options"); } catch {} }
     S.metrics = await api("/api/metrics"); S.controls = S.metrics.controls || {};
     if (effRole() === "operator") { try { S.ap2 = await api("/api/ap2"); } catch {} if (!S.a2a) { try { S.a2a = await api("/api/a2a"); } catch {} } }
   } catch (e) { S.metricsErr = e.message; }
@@ -221,11 +229,12 @@ function feedRow(e, res, tech) {
   const a = e.action || {}, open = S.open.has(e.id), st = statusOf(e, res);
   let title, who;
   if (a.type === "control") { title = `Control: ${esc(plain(e.explanation))}`; who = ""; }
-  else if (isDecision(e)) { title = `${esc(e.approver || "A manager")} ${e.verdict === "APPROVED" ? "approved" : "rejected"}: ${esc(itemTitle(a))}`; who = e.requester ? `requested by ${esc(e.requester)}` : ""; }
+  else if (isDecision(e)) { title = `${esc(e.approver || "A manager")} ${e.verdict === "APPROVED" ? "approved" : a.withdrawn ? "withdrew" : "rejected"}: ${esc(itemTitle(a))}`; who = e.requester ? `requested by ${esc(e.requester)}` : ""; }
   else { title = esc(itemTitle(a)); who = `by ${esc(e.requester || "an agent")}`; }
   return `<div class="item ${st.cls} clickable" data-act="toggle" data-id="${esc(e.id)}" role="button" tabindex="0" aria-expanded="${open}"><span class="mark"></span>
     <div class="body"><div class="t">${title}</div>${a.type === "control" ? "" : `<p class="why">${esc(short(e.explanation))}</p>`}
-      <div class="meta">${who ? `<span>${who}</span>` : ""}<span>${esc(ago(e.ts))}</span>${isSim(e) ? `<span class="tag sim">Simulated</span>` : ""}${chipsFor(e, res)}</div>
+      ${tripOf(e) ? `<div class="when-line">${esc(tripOf(e).origin)} → ${esc(tripOf(e).destination)} · ${esc(tripRange(tripOf(e)))}${tripOf(e).cost_center ? ` · ${esc(tripOf(e).cost_center)}` : ""}</div>` : ""}
+      <div class="meta">${who ? `<span>${who}</span>` : ""}<span title="${esc(new Date(e.ts).toLocaleString())}">${esc(fmtWhen(e.ts))} · ${esc(ago(e.ts))}</span>${isSim(e) ? `<span class="tag sim">Simulated</span>` : ""}${chipsFor(e, res)}</div>
       ${open ? detailBlock(e, res, tech) : ""}</div><div class="aside">${badge(st)}</div></div>`;
 }
 const emptyBox = (t, s) => `<div class="empty"><b>${esc(t)}</b>${esc(s || "")}</div>`;
@@ -238,24 +247,75 @@ function mandateTerms() {
     ["Book by", c.book_by || "—"]] };
 }
 
-/* ============================== page: My requests (everyone who can ask) ============================== */
+/* ============================== trips: dates, itinerary, grouping ============================== */
+const LEGL = { flight_out: "Outbound flight", transfer_out: "Airport to hotel", hotel: "Hotel", transfer_back: "Hotel to airport", flight_back: "Return flight" };
+const LEG_ORDER = ["flight_out", "transfer_out", "hotel", "transfer_back", "flight_back"];
+const DAYF = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
+const dayOf = s => s ? new Date(String(s).slice(0, 10) + "T00:00:00") : null;
+const fmtDay = s => s ? DAYF.format(dayOf(s)) : "";
+const fmtTime = s => String(s || "").length >= 16 ? String(s).slice(11, 16) : "";
+const fmtWhen = ts => ts ? new Date(ts).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+const daysTo = s => Math.round((dayOf(s) - new Date(new Date().toDateString())) / 864e5);
+const stake = a => (a.price || 0) * (a.type === "book_hotel" ? (a.nights || 1) : 1);
+const tripOf = e => e?.action?.trip || null;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+const tripRange = t => t.return_date ? `${fmtDay(t.depart_date)} to ${fmtDay(t.return_date)}` : fmtDay(t.depart_date);
+const ccName = c => c ? c + (S.tripOpts?.cost_centers?.[c] ? " · " + S.tripOpts.cost_centers[c] : "") : "";
+function countdown(t) {
+  if (!t?.depart_date) return "";
+  const d = daysTo(t.depart_date), back = t.return_date ? daysTo(t.return_date) : d;
+  if (back < 0) return `<span class="tag">Completed</span>`;
+  if (d < 0) return `<span class="tag info">In progress</span>`;
+  if (d === 0) return `<span class="tag warn">Departs today</span>`;
+  return `<span class="tag ${d < 7 ? "warn" : ""}">Departs in ${plural(d, "day")}</span>`;
+}
+function tripHead(t) {
+  return `<div class="t">${esc(t.origin)} → ${esc(t.destination)} <span class="tag">${t.return_date ? "Round trip" : "One way"}</span></div>
+    <div class="when-line">${esc(tripRange(t))}${t.nights ? ` · ${plural(t.nights, "night")}` : ""}</div>
+    <div class="meta">${t.purpose ? `<span>${esc(t.purpose)}</span>` : ""}${t.cost_center ? `<span>${esc(ccName(t.cost_center))}</span>` : ""}${t.traveler ? `<span>Traveller: ${esc(t.traveler)}</span>` : ""}</div>`;
+}
+function legDetail(a) {
+  const k = kindOf(a);
+  if (k === "flight" && a.depart) return { when: `${fmtDay(a.depart)}<b>${fmtTime(a.depart)}</b>`, cost: usd(a.price),
+    what: `<b>${esc(LEGL[a.leg] || "Flight")}</b> · ${esc(a.flight_no || "")} ${esc(a.vendor)}<span class="sub">${esc(a.from_city)} ${fmtTime(a.depart)} → ${esc(a.to_city)} ${fmtTime(a.arrive)}${a.class ? " · " + esc(a.class) : ""}${a.refundable === false ? " · non-refundable" : ""}</span>` };
+  if (k === "hotel" && a.check_in) return { when: `${fmtDay(a.check_in)}<b>check-in</b>`, cost: usd(stake(a)),
+    what: `<b>Hotel</b> · ${esc(a.vendor)}<span class="sub">${esc(fmtDay(a.check_in))} → ${esc(fmtDay(a.check_out))} · ${plural(a.nights || 1, "night")} at ${usd(a.price)}${a.refundable === false ? " · non-refundable" : ""}</span>` };
+  if (k === "transport" && a.pickup) return { when: `${fmtDay(a.pickup)}<b>${fmtTime(a.pickup)}</b>`, cost: usd(a.price),
+    what: `<b>${esc(a.route || LEGL[a.leg] || "Ground transport")}</b> · ${esc(a.vendor)}<span class="sub">pickup ${fmtTime(a.pickup)}</span>` };
+  return { when: "", cost: usd(stake(a)), what: `<b>${esc(KINDS[k] || k)}</b> · ${esc(a.vendor || "")}` };
+}
+const reasonOf = e => short(e.explanation, 200);
+function sharedReason(list, res) {                     // one reason for several legs (e.g. a late booking) is stated once, not once per leg
+  const bad = list.filter(e => statusOf(e, res).cls !== "ok"), set = new Set(bad.map(reasonOf));
+  return bad.length > 1 && set.size === 1 ? [...set][0] : "";
+}
+const headRow = (head, badgeHtml) => `<div class="headrow"><div class="grow">${head}</div>${badgeHtml || ""}</div>`;
+function legRow(e, res, quiet) {
+  const a = e.action || {}, st = statusOf(e, res), d = legDetail(a);
+  return `<div class="leg-row ${st.cls}"><div class="when">${d.when}</div><div class="what">${d.what}${a.replan_reason ? ` <span class="tag">Corrected by the agent</span>` : ""}${st.cls !== "ok" && !quiet ? `<span class="why">${esc(short(e.explanation, 160))}</span>` : ""}</div><div class="cost">${d.cost}</div><div class="st">${badge(st)}</div></div>`;
+}
+const legKey = e => e.action?.leg || e.action?.type;
+const legRank = e => { const i = LEG_ORDER.indexOf(e.action?.leg); return i >= 0 ? i : 10 + ["book_flight", "book_hotel", "book_transport"].indexOf(e.action?.type); };
+function finals(g) { const f = {}; g.entries.forEach(e => { f[legKey(e)] = e; }); return Object.values(f).sort((a, b) => legRank(a) - legRank(b)); }
+
 function groupRequests(asc) {
-  const groups = [];
+  const groups = [], byTrip = {};
   for (const e of asc) {
-    const t = new Date(e.ts).getTime();
+    const t = new Date(e.ts).getTime(), tr = tripOf(e);
+    if (tr?.id) { const g = byTrip[tr.id] ||= (groups.push({ key: tr.id, trip: tr, request: e.request || "", entries: [], last: t, first: t }), groups[groups.length - 1]); g.entries.push(e); g.last = t; continue; }
     let g = null;
-    if (e.request) g = groups.slice().reverse().find(x => x.request === e.request && t - x.last < 5 * 60e3);
-    else if (e.action?.replan_reason) g = groups.slice().reverse().find(x => !x.request && x.entries[0].action?.type === e.action.type && t - x.last < 3 * 60e3);
-    if (g) { g.entries.push(e); g.last = t; } else groups.push({ request: e.request || "", entries: [e], last: t, first: t });
+    if (e.request) g = groups.slice().reverse().find(x => !x.trip && x.request === e.request && t - x.last < 5 * 60e3);
+    else if (e.action?.replan_reason) g = groups.slice().reverse().find(x => !x.trip && !x.request && x.entries[0].action?.type === e.action.type && t - x.last < 3 * 60e3);
+    if (g) { g.entries.push(e); g.last = t; } else groups.push({ key: "g" + e.id, trip: null, request: e.request || "", entries: [e], last: t, first: t });
   }
   return groups;
 }
 function groupStatus(g, res) {
-  const finals = {}; g.entries.forEach(e => { finals[e.action?.type] = e; });
-  const sts = Object.values(finals).map(e => statusOf(e, res));
+  const fin = finals(g), sts = fin.map(e => statusOf(e, res));
   if (sts.some(s => s.cls === "warn")) return { cls: "warn", label: "Awaiting approval", key: "wait" };
   if (sts.every(s => s.cls === "ok")) return { cls: "ok", label: "Approved", key: "ok" };
-  if (sts.some(s => s.cls === "ok")) return { cls: "warn", label: "Partly approved", key: "ok" };
+  if (sts.every(s => s.label === "Withdrawn")) return { cls: "info", label: "Withdrawn", key: "bad" };
+  if (sts.some(s => s.cls === "ok")) return { cls: "warn", label: "Partly approved", key: "bad" };
   return { cls: "bad", label: sts.every(s => /Rejected/.test(s.label)) ? "Rejected" : "Blocked", key: "bad" };
 }
 function myGroups(res) {
@@ -263,17 +323,24 @@ function myGroups(res) {
   return groupRequests(mine).reverse().map(g => ({ ...g, st: groupStatus(g, res) }));
 }
 function reqCard(g, res) {
-  const open = S.open.has("g" + g.entries[0].id), first = g.entries[0], multi = g.entries.length > 1;
-  const title = g.request ? "Trip request" : multi ? `${esc(KINDS[kindOf(first.action)] || "Purchase")} request` : esc(itemTitle(first.action));
-  const one = e => `<p class="why">${esc(short(e.explanation, 170))}</p>${chipsFor(e, res) ? `<div class="meta" style="margin-top:4px">${chipsFor(e, res)}</div>` : ""}${open ? detailBlock(e, res, false) : ""}`;
-  const lines = multi ? g.entries.map(e => { const st = statusOf(e, res), corr = !!e.action?.replan_reason;
-    return `<div class="line" ${corr ? 'style="margin-left:18px"' : ""}>${corr ? "<span class='muted'>↳</span>" : ""}${badge(st)}<span><b>${esc(itemTitle(e.action))}</b><br><span class="muted">${esc(short(e.explanation, 130))}</span>${chipsFor(e, res) ? `<br>${chipsFor(e, res)}` : ""}</span></div>${open ? detailBlock(e, res, false) : ""}`; }).join("") : one(first);
-  const decided = g.entries.map(e => res[e.id]).filter(Boolean)[0];
-  return `<div class="item ${g.st.cls}"><span class="mark"></span><div class="body"><div class="t">${title}</div>${g.request ? `<div class="small">“${esc(g.request)}”</div>` : ""}
-    ${lines}${decided ? `<div class="meta"><span>${esc(decided.verdict === "APPROVED" ? "Approved" : "Rejected")} by ${esc(decided.by || "a manager")} · ${esc(ago(decided.ts))}</span></div>` : ""}
-    <div class="meta"><span>${esc(ago(first.ts))}</span><button class="link" data-act="toggle" data-id="g${esc(first.id)}">${open ? "Hide details" : "Details"}</button></div></div><div class="aside">${badge(g.st)}</div></div>`;
+  const key = "g" + g.key, open = S.open.has(key), fin = finals(g), sts = fin.map(e => statusOf(e, res)), t = g.trip, first = g.entries[0];
+  const total = fin.reduce((s, e, i) => s + (sts[i].cls === "bad" || sts[i].label === "Withdrawn" ? 0 : stake(e.action)), 0), waiting = fin.reduce((s, e, i) => s + (sts[i].cls === "warn" ? stake(e.action) : 0), 0);
+  const pend = fin.filter(e => e.verdict === "REVIEW" && !res[e.id]).map(e => e.id), decided = fin.map(e => res[e.id]).find(r => r && !r.withdrawn);
+  const head = t ? tripHead(t) : `<div class="t">${g.request ? "Trip request" : esc(itemTitle(first.action))}</div>${g.request ? `<div class="small">“${esc(g.request)}”</div>` : ""}`;
+  const shared = sharedReason(fin, res);
+  const body = t || fin.length > 1 ? `<div class="itin">${fin.map(e => legRow(e, res, !!shared)).join("")}</div>${shared ? `<div class="impact ${g.st.cls === "bad" ? "" : "warn"}"><b>Why:</b> ${esc(shared)}</div>` : ""}` : `<p class="why">${esc(short(first.explanation, 170))}</p>${chipsFor(first, res) ? `<div class="meta">${chipsFor(first, res)}</div>` : ""}`;
+  return `<div class="item ${g.st.cls}"><span class="mark"></span><div class="body">${headRow(head, badge(g.st))}${body}
+    ${total ? `<div class="totals"><span>Trip cost <b>${usd(total)}</b></span>${waiting ? `<span class="warn-t">${usd(waiting)} awaiting approval</span>` : ""}</div>` : ""}
+    ${t?.justification ? `<p class="small" style="margin:6px 0 0">Business reason: “${esc(t.justification)}”</p>` : ""}
+    ${decided ? `<div class="meta"><span>${decided.verdict === "APPROVED" ? "Approved" : "Rejected"} by <b>${esc(decided.by || "a manager")}</b> · ${esc(fmtWhen(decided.ts))}</span>${decided.comment ? `<span>“${esc(decided.comment)}”</span>` : ""}</div>` : ""}
+    <div class="meta"><span title="${esc(new Date(first.ts).toLocaleString())}">Requested ${esc(fmtWhen(first.ts))} · ${esc(ago(first.ts))}</span>${t && g.st.key !== "bad" ? countdown(t) : ""}
+      <button class="link" data-act="toggle" data-id="${esc(key)}">${open ? "Hide details" : "Why and how it was checked"}</button>
+      ${pend.length ? `<button class="link" style="color:var(--bad)" data-act="withdraw" data-ids="${esc(pend.join(","))}">Withdraw request</button>` : ""}</div>
+    ${open ? g.entries.map(e => `<div class="subhead">${esc(itemTitle(e.action))}</div>${detailBlock(e, res, false)}`).join("") : ""}</div></div>`;
 }
-const NL_EXAMPLES = [["Standard trip", "Book my Mumbai trip with the cheapest options that fit our travel policy."], ["Treat myself", "I want business class on Emirates and the best hotel you can find."], ["Cheapest, ignore rules", "Cheapest possible everything, I don't care about refunds or the usual suppliers."]];
+
+/* ---- the trip form ---- */
+const NL_EXAMPLES = [["Prefer morning flights", "Morning flights please, and an aisle seat if possible."], ["Treat myself", "I want business class on Emirates and the best hotel you can find."], ["Cheapest, ignore rules", "Cheapest possible everything, I don't care about refunds or the usual suppliers."]];
 const FORM_EXAMPLES = {
   normal: ["Normal economy flight", { type: "book_flight", vendor: "Air India", price: 480, cls: "economy", ref: "yes", dest: "Mumbai", note: "" }],
   over: ["Flight over the cap", { type: "book_flight", vendor: "Air India", price: 660, cls: "economy", ref: "yes", dest: "Mumbai", note: "" }],
@@ -282,16 +349,75 @@ const FORM_EXAMPLES = {
   city: ["Flight to the wrong city", { type: "book_flight", vendor: "Air India", price: 420, cls: "economy", ref: "yes", dest: "Delhi", note: "" }],
   hotel: ["Hotel above the nightly cap", { type: "book_hotel", vendor: "Taj", price: 340, cls: "economy", ref: "yes", dest: "Mumbai", note: "" }],
 };
+const isoDay = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
+const addDays = (n, from = new Date()) => { const d = new Date(from); d.setDate(d.getDate() + n); return d; };
+const TOD = [["any", "Any time"], ["morning", "Morning (before 12:00)"], ["afternoon", "Afternoon (12:00 to 18:00)"], ["evening", "Evening (after 18:00)"]];
+const sel = (id, opts, v) => `<select id="${id}">${opts.map(([k, l]) => `<option value="${esc(k)}" ${k === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>`;
+function tripFormHtml() {
+  const o = S.tripOpts || {}, origins = o.origins || ["Bengaluru", "Delhi", "Chennai", "Hyderabad", "Pune"], purposes = o.purposes || ["Client meeting", "Conference or event", "Training", "Internal / team offsite", "Recruiting", "Other"];
+  const ccs = Object.entries(o.cost_centers || { "CC-1042": "Sales, APAC", "CC-2210": "Engineering, Platform", "CC-3105": "Customer Success", "CC-4001": "Leadership" });
+  return `<div class="tf"><div><div class="tf-grid">
+    <div class="field span2"><span>Trip type</span><div class="seg" id="t-type" role="group" aria-label="Trip type"><button type="button" data-tt="round_trip" aria-pressed="true">Round trip</button><button type="button" data-tt="one_way" aria-pressed="false">One way</button></div></div>
+    <label class="field">From${sel("t-from", origins.map(c => [c, c]), "Bengaluru")}</label>
+    <label class="field">To${sel("t-to", [["Mumbai", "Mumbai"], ["other", "Another city…"]], "Mumbai")}</label>
+    <label class="field">Departure date<input type="date" id="t-dep" value="${isoDay(addDays(21))}" min="${isoDay(new Date())}"></label>
+    <label class="field">Preferred departure time${sel("t-depp", TOD, "any")}</label>
+    <label class="field" id="t-ret-w">Return date<input type="date" id="t-ret" value="${isoDay(addDays(24))}" min="${isoDay(new Date())}"></label>
+    <label class="field" id="t-retp-w">Preferred return time${sel("t-retp", TOD, "any")}</label>
+    <label class="field" id="t-nights-w" hidden>Nights away<input type="number" id="t-nights" min="0" max="30" value="3"></label>
+    <div class="field span2"><label class="check"><input type="checkbox" id="t-hotel" checked> Book a hotel for the stay</label><label class="check"><input type="checkbox" id="t-tr" checked> Book airport transfers</label></div>
+    <label class="field">Purpose${sel("t-purpose", purposes.map(p => [p, p]), purposes[0])}</label>
+    <label class="field">Cost centre${sel("t-cc", ccs.map(([k, v]) => [k, `${k} · ${v}`]), ccs[0][0])}</label>
+    <label class="field span2">Business reason<textarea id="t-just" maxlength="300" placeholder="Who are you meeting, or what is the trip for? Your approver will see this."></textarea></label>
+    <label class="field span2">Preferences for the booking agent (optional)<input id="t-note" maxlength="200" placeholder="e.g. morning flights, aisle seat">
+      <span class="hint">A note never counts as approval: only the policy and a person's decision do.</span></label>
+    <div class="chips span2">${NL_EXAMPLES.map(([l, t]) => `<button type="button" class="chip" data-nl="${esc(t)}">${esc(l)}</button>`).join("")}</div></div>
+    <div class="row" style="margin-top:16px"><button class="btn primary" id="t-go" type="button">Check against policy and book</button><button class="btn" type="button" data-act="closeform">Cancel</button></div>
+    <div class="progress" id="nl-progress" aria-live="polite"></div></div>
+    <aside class="est" id="t-est" aria-live="polite"></aside></div>`;
+}
+const tfVal = id => $(id)?.value ?? "";
+function tfRead() {
+  const type = $("t-type").querySelector("[aria-pressed=true]").dataset.tt;
+  return { type, origin: tfVal("t-from"), dest: tfVal("t-to") === "other" ? "" : tfVal("t-to"), other: tfVal("t-to") === "other", dep: tfVal("t-dep"), ret: tfVal("t-ret"), nightsIn: Number(tfVal("t-nights")) || 0, depp: tfVal("t-depp"), retp: tfVal("t-retp"),
+    hotel: $("t-hotel").checked, tr: $("t-tr").checked, purpose: tfVal("t-purpose"), cc: tfVal("t-cc"), just: tfVal("t-just").trim(), note: tfVal("t-note").trim() };
+}
+function tfCalc(f) {
+  const pol = S.tripOpts?.policy || { min_advance_days: 7, max_trip_days: 14 }, c = S.mandate?.mandate?.constraints || {}, errs = [], warns = [];
+  const rt = f.type === "round_trip", nights = rt ? Math.round((dayOf(f.ret) - dayOf(f.dep)) / 864e5) : f.nightsIn, notice = f.dep ? daysTo(f.dep) : null;
+  if (f.other) errs.push(`Your travel policy covers ${c.destination || "Mumbai"} only. For another city, ask finance for a trip authorization first.`);
+  if (!f.dep) errs.push("Choose a departure date."); else if (notice < 0) errs.push("The departure date is in the past.");
+  if (rt) { if (!f.ret) errs.push("Choose a return date."); else if (f.ret < f.dep) errs.push("The return date is before the departure date."); }
+  if (f.hotel && nights < 1 && !errs.length) errs.push(rt ? "A hotel needs at least one night: pick a later return date or turn the hotel off." : "Enter how many nights you will stay.");
+  if (!errs.length && notice < pol.min_advance_days) warns.push(`Departing in ${plural(Math.max(notice, 0), "day")}. The policy asks for ${pol.min_advance_days} days' notice, so a finance manager will need to approve this.`);
+  if (!errs.length && rt && nights > pol.max_trip_days) warns.push(`A ${nights}-night trip is longer than the ${pol.max_trip_days}-day limit and needs approval.`);
+  const legs = ["Outbound flight", f.tr && "Airport to hotel", f.hotel && `Hotel, ${plural(Math.max(nights, 0), "night")}`, f.tr && rt && "Hotel to airport", rt && "Return flight"].filter(Boolean);
+  const flights = rt ? 2 : 1, transfers = f.tr ? (rt ? 2 : 1) : 0, max = flights * (c.max_flight_price_usd || 600) + (f.hotel ? Math.max(nights, 0) * (c.max_hotel_per_night_usd || 300) : 0) + transfers * (c.max_transport_usd || 100);
+  return { errs, warns, nights, notice, legs, max, rt };
+}
+function tfEstimate() {
+  if (!$("t-est")) return null; const f = tfRead(), x = tfCalc(f);
+  $("t-ret-w").hidden = !x.rt; $("t-retp-w").hidden = !x.rt; $("t-nights-w").hidden = x.rt;
+  $("t-est").innerHTML = `<h4>Your trip</h4><div class="small">${esc(f.origin)} → ${esc(f.other ? "another city" : f.dest)} · ${x.rt ? "round trip" : "one way"}</div>
+    <div class="est-dates">${f.dep ? esc(fmtDay(f.dep)) : "—"}${x.rt && f.ret ? ` to ${esc(fmtDay(f.ret))}` : ""}</div>
+    <div class="small">${x.notice != null && f.dep ? (x.notice >= 0 ? `Leaves in ${plural(x.notice, "day")}` : "In the past") : ""}${x.nights > 0 ? ` · ${plural(x.nights, "night")} away` : ""}</div>
+    <div class="eyebrow" style="margin:12px 0 4px">Bookings the agent will make</div><ul class="est-legs">${x.legs.map(l => `<li>${esc(l)}</li>`).join("")}</ul>
+    <div class="est-max">Most the policy allows without approval <b>${usd(x.max)}</b></div>
+    ${x.errs.map(m => `<div class="est-msg bad">${esc(m)}</div>`).join("")}${x.warns.map(m => `<div class="est-msg warn">${esc(m)}</div>`).join("")}${!x.errs.length && !x.warns.length ? `<div class="est-msg ok">Inside the policy: no approval should be needed.</div>` : ""}`;
+  $("t-go").disabled = !!x.errs.length || nlBusy; return { f, x };
+}
+function openForm(on) { S.f.formOpen = on; const el = $("trip-form"); if (el) { el.hidden = !on; if (on) { tfEstimate(); el.scrollIntoView({ behavior: "smooth", block: "start" }); } } }
+
 PAGES.home = {
-  title: () => "My requests", sub: () => "Ask for travel in plain English or submit a single purchase. Every request is checked against your company policy before any money moves.",
+  title: () => "My trips", sub: () => "Plan a trip, then follow every booking, approval and decision. Each request is checked against your company's travel policy before any money moves.",
   mount(el) {
+    $("page-actions").innerHTML = `<button class="btn primary" data-act="newtrip">${ico("plus")} Plan a trip</button>`;
     el.innerHTML = `<div class="kpis" id="h-kpis"></div>
-    <div class="cols"><div class="card"><div class="card-h"><h3>Requests</h3><div class="chips" id="h-filters">${[["all", "All"], ["wait", "Awaiting approval"], ["ok", "Approved"], ["bad", "Blocked"]].map(([k, l]) => `<button class="chip" data-act="rfilter" data-k="${k}" aria-pressed="${S.f.reqStatus === k}">${l}</button>`).join("")}</div></div><div id="h-list" class="list"></div></div>
-    <div class="stack sticky first-sm"><div class="card"><div class="card-h"><h3>New request</h3><div class="seg" id="rq-seg"><button data-rq="trip" aria-pressed="true">Plan a trip</button><button data-rq="buy" aria-pressed="false">Single purchase</button></div></div>
-      <div class="card-b"><div id="rq-trip" class="stack"><label class="field">What do you need?<textarea id="nl-text" maxlength="500" placeholder="e.g. Book my Mumbai trip with the cheapest options that fit our travel policy."></textarea></label>
-          <div class="chips">${NL_EXAMPLES.map(([l, t]) => `<button class="chip" data-nl="${esc(t)}">${esc(l)}</button>`).join("")}</div>
-          <button class="btn primary" id="nl-go">Send to the booking agent</button><div class="progress" id="nl-progress" aria-live="polite"></div></div>
-        <div id="rq-buy" class="stack" hidden><label class="field">Fill with an example<select id="f-example"><option value="">Choose a test case…</option>${Object.entries(FORM_EXAMPLES).map(([k, [l]]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select></label>
+    <div class="card" id="trip-form" ${S.f.formOpen ? "" : "hidden"} style="margin-bottom:18px"><div class="card-h"><h3>Plan a trip</h3></div><div class="card-b">${tripFormHtml()}</div></div>
+    <div class="cols"><div class="card"><div class="card-h"><h3>Trips and requests</h3><div class="chips" id="h-filters">${[["all", "All"], ["wait", "Awaiting approval"], ["ok", "Approved"], ["bad", "Not approved"]].map(([k, l]) => `<button class="chip" data-act="rfilter" data-k="${k}" aria-pressed="${S.f.reqStatus === k}">${l}</button>`).join("")}</div></div><div id="h-list" class="list"></div></div>
+    <div class="stack sticky first-sm"><div class="card pad" id="h-policy"></div>
+      <details class="card pad"><summary class="strong" style="cursor:pointer">Buy a single item instead</summary><p class="small" style="margin:8px 0 12px">For one-off purchases. It goes through the same policy check.</p>
+        <div id="rq-buy" class="stack"><label class="field">Fill with an example<select id="f-example"><option value="">Choose a test case…</option>${Object.entries(FORM_EXAMPLES).map(([k, [l]]) => `<option value="${k}">${esc(l)}</option>`).join("")}</select></label>
           <div class="fgrid"><label class="field">Type<select id="f-type"><option value="book_flight">Flight</option><option value="book_hotel">Hotel (per night)</option><option value="book_transport">Ground transport</option></select></label>
             <label class="field">Vendor<input id="f-vendor" value="Air India" maxlength="60"></label>
             <label class="field">Amount (USD)<input id="f-amount" type="number" min="1" step="1" value="480"></label>
@@ -300,26 +426,28 @@ PAGES.home = {
             <label class="field" id="f-ref-w">Refundable<select id="f-ref"><option value="yes">Yes</option><option value="no">No</option><option value="na">Not stated</option></select></label></div>
           <label class="field">Note for the approver (optional)<input id="f-note" maxlength="200" placeholder="Anything the approver should know"><span class="hint">A note never counts as approval.</span></label>
           <label class="check"><input type="checkbox" id="f-correct" checked> If it is blocked, let the agent propose a compliant alternative</label>
-          <button class="btn primary" id="f-submit">Submit for authorization</button></div>
-        <div id="f-result" aria-live="polite"></div></div></div>
-      <div class="card pad" id="h-policy"></div></div></div>`;
-    $("rq-seg").onclick = e => { const b = e.target.closest("[data-rq]"); if (!b) return; document.querySelectorAll("#rq-seg button").forEach(x => x.setAttribute("aria-pressed", x === b)); $("rq-trip").hidden = b.dataset.rq !== "trip"; $("rq-buy").hidden = b.dataset.rq !== "buy"; };
-    el.querySelectorAll("[data-nl]").forEach(b => b.onclick = () => { $("nl-text").value = b.dataset.nl; $("nl-text").focus(); });
+          <button class="btn primary" id="f-submit">Submit for authorization</button><div id="f-result" aria-live="polite"></div></div></details></div></div>`;
+    const tf = $("trip-form");
+    const upd = () => { if (!nlBusy) $("nl-progress").innerHTML = ""; tfEstimate(); }; tf.addEventListener("input", upd); tf.addEventListener("change", upd);
+    tf.addEventListener("click", e => { const b = e.target.closest("[data-tt]"); if (b) { document.querySelectorAll("#t-type button").forEach(x => x.setAttribute("aria-pressed", x === b)); tfEstimate(); } const n = e.target.closest("[data-nl]"); if (n) { $("t-note").value = n.dataset.nl; $("t-note").focus(); } });
+    $("t-go").onclick = submitTrip; tfEstimate();
     const vis = () => { const t = $("f-type").value; $("f-class-w").hidden = t !== "book_flight"; $("f-ref-w").hidden = t === "book_transport"; };
     $("f-type").onchange = () => { const d = { book_flight: ["Air India", 480], book_hotel: ["Taj", 280], book_transport: ["Uber", 40] }[$("f-type").value]; $("f-vendor").value = d[0]; $("f-amount").value = d[1]; vis(); };
     $("f-example").onchange = () => { const x = FORM_EXAMPLES[$("f-example").value]; if (!x) return; const p = x[1]; $("f-type").value = p.type; $("f-vendor").value = p.vendor; $("f-amount").value = p.price; $("f-class").value = p.cls; $("f-ref").value = p.ref; $("f-dest").value = p.dest; $("f-note").value = p.note; vis(); };
-    $("f-submit").onclick = submitPurchase; $("nl-go").onclick = submitTrip; vis();
+    $("f-submit").onclick = submitPurchase; vis();
   },
   update() {
     if (!$("h-list")) return;
     const res = resolvedMap(), all = myGroups(res), list = S.f.reqStatus === "all" ? all : all.filter(g => g.st.key === S.f.reqStatus);
-    const cnt = k => all.filter(g => g.st.key === k).length;
-    $("h-kpis").innerHTML = kpiHtml([["Requests", all.length, "submitted by you"], ["Approved", cnt("ok"), "receipt issued"], ["Awaiting approval", cnt("wait"), "with a finance manager"], ["Blocked", cnt("bad"), "did not match policy"]]);
-    $("h-list").innerHTML = S.rows.length || S.live ? (list.map(g => reqCard(g, res)).join("") || emptyBox(all.length ? "Nothing in this view" : "No requests yet", all.length ? "Try another filter." : "Plan a trip or submit a purchase on the right. You will see the decision here, live.")) : `<div class="pad"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`;
+    const cnt = k => all.filter(g => g.st.key === k).length, upcoming = all.filter(g => g.st.key === "ok" && g.trip && daysTo(g.trip.return_date || g.trip.depart_date) >= 0).length;
+    if (!all.length && S.live && !S.f.formSeen) { S.f.formSeen = true; openForm(true); }
+    $("h-kpis").innerHTML = kpiHtml([["Trips and requests", all.length, "submitted by you"], ["Upcoming trips", upcoming, "approved and booked"], ["Awaiting approval", cnt("wait"), "with a finance manager"], ["Not approved", cnt("bad"), "blocked, rejected or withdrawn"]]);
+    $("h-list").innerHTML = S.rows.length || S.live ? (list.map(g => reqCard(g, res)).join("") || emptyBox(all.length ? "Nothing in this view" : "No trips yet", all.length ? "Try another filter." : "Choose “Plan a trip” above. You will see the decision here, live.")) : `<div class="pad"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`;
     const t = mandateTerms();
-    $("h-policy").innerHTML = t ? `<h3>Your travel policy</h3><dl class="terms" style="margin-top:12px">${t.rows.slice(0, 6).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl><div class="small" style="margin-top:10px"><a href="#/policy">See how decisions are made</a></div>` : `<div class="skeleton"></div><div class="skeleton"></div>`;
+    $("h-policy").innerHTML = t ? `<h3>Your travel policy</h3><dl class="terms" style="margin-top:12px">${t.rows.slice(0, 6).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}${tripRules().map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl><div class="small" style="margin-top:10px"><a href="#/policy">See how decisions are made</a></div>` : `<div class="skeleton"></div><div class="skeleton"></div>`;
   },
 };
+const tripRules = () => { const p = S.tripOpts?.policy; return p ? [["Notice", `${p.min_advance_days}+ days before departure`], ["Trip length", `Up to ${p.max_trip_days} days`]] : []; };
 function resultBox(j) {
   const V = j.verdict, cls = { MATCH: "ok", REVIEW: "warn", DRIFT: "bad" }[V] || "ok", first = j.steps[0].audit;
   const head = { allow: "Approved. A receipt was issued.", escalate: "Sent to a finance manager for approval.", block: "Blocked." }[j.decision];
@@ -327,7 +455,7 @@ function resultBox(j) {
     ${j.corrected ? `<p>The first attempt was <b>blocked</b>: ${esc(short(first.explanation, 160))}<br>The agent then chose <b>${esc(j.steps[1].action.vendor)} · ${usd(j.steps[1].action.price)}</b>, which fits the policy.</p>` : ""}
     <p>${esc(short(j.explanation, 220))}</p>${j.violations.length && V !== "MATCH" ? `<ul class="viol">${j.violations.map(v => `<li>${esc(plain(v))}</li>`).join("")}</ul>` : ""}
     ${j.counterfactual && V !== "MATCH" ? `<div class="impact ${V === "REVIEW" ? "warn" : ""}">${esc(j.counterfactual.summary)}</div>` : ""}
-    ${V === "REVIEW" ? `<p class="small">You will see the decision under Requests as soon as someone acts on it.</p>` : ""}
+    ${V === "REVIEW" ? `<p class="small">You will see the decision under Trips and requests as soon as someone acts on it.</p>` : ""}
     ${j.cart_mandate ? `<div class="receipt">Receipt ${esc(j.cart_mandate.cartId.slice(0, 10))}… · ${usd(j.cart_mandate.total)}${j.ap2?.verified ? " · mandate chain verified with Google's AP2 SDK" : ""}</div>` : ""}</div>`;
 }
 async function submitPurchase() {
@@ -344,60 +472,91 @@ async function submitPurchase() {
 }
 let nlBusy = false;
 async function submitTrip() {
-  const text = $("nl-text").value.trim(); if (nlBusy) return; if (!text) { toast("Describe the trip first.", true); return; }
-  nlBusy = true; $("nl-go").disabled = true; const out = $("nl-progress"); out.innerHTML = "";
+  if (nlBusy) return; const est = tfEstimate(); if (!est || est.x.errs.length) { toast(est?.x.errs[0] || "Check the form.", true); return; }
+  const f = est.f, rt = f.type === "round_trip";
+  if (est.x.warns.length && !f.just) { toast("Add a business reason: your approver will need it for this late or long trip.", true); $("t-just").focus(); return; }
+  const trip = { type: f.type, origin: f.origin, destination: f.dest, depart_date: f.dep, return_date: rt ? f.ret : null, nights: rt ? undefined : f.nightsIn, hotel: f.hotel, transport: f.tr, depart_pref: f.depp, return_pref: f.retp, purpose: f.purpose, cost_center: f.cc, justification: f.just, traveler: myName() };
+  const text = `${rt ? "Round trip" : "One way"} ${f.origin} to ${f.dest}, ${fmtDay(f.dep)}${rt ? " to " + fmtDay(f.ret) : ""}, ${f.purpose.toLowerCase()}.${f.note ? " " + f.note : ""}`.slice(0, 480);
+  nlBusy = true; $("t-go").disabled = true; $("t-go").textContent = "Booking…"; const out = $("nl-progress"); out.innerHTML = "";
   const line = (t, c = "") => { const d = document.createElement("div"); d.className = c; d.innerHTML = t; out.appendChild(d); };
+  const fin = {};
   try {
-    const r = await fetch(BASE + "/stream/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, requester: myName() }) });
+    const r = await fetch(BASE + "/stream/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, requester: myName(), trip }) });
     if (!r.ok) throw new Error((await r.json()).error || r.statusText);
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
     for (;;) { const { done, value } = await rd.read(); if (done) break; buf += dec.decode(value, { stream: true }); let i;
       while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); if (!l.trim()) continue; const ev = JSON.parse(l);
-        if (ev.event === "discovered") line(`Found the ${esc(KINDS[ev.kind] || ev.kind).toLowerCase()} supplier (${ev.offers} offers)`);
-        else if (ev.event === "planning") line("The booking agent is choosing offers…");
-        else if (ev.event === "correction_start") line(`Blocked. The agent is choosing a compliant ${esc(ev.kind)} instead.`, "bad");
-        else if (ev.event === "step") { const a = ev.step.audit, st = { cls: COLORCLS[a.verdict] || "info", label: LABELS[a.verdict] || a.verdict }; line(`${badge(st)} ${esc(KINDS[ev.kind])}: ${esc(ev.step.action.vendor)} ${usd(ev.step.action.price)}`, st.cls); }
-        else if (ev.event === "run_done") line("<b>Done.</b> The full result is in your requests list.", "ok");
+        if (ev.event === "discovered") line(`Found the ${esc((LEGL[ev.leg] || KINDS[ev.kind] || ev.kind)).toLowerCase()} supplier (${plural(ev.offers, "offer")})`);
+        else if (ev.event === "planning") line("The booking agent is choosing the best offer for each part of the trip…");
+        else if (ev.event === "correction_start") line(`Blocked. The agent is choosing a compliant ${esc((LEGL[ev.leg] || ev.kind)).toLowerCase()} instead.`, "bad");
+        else if (ev.event === "step") { const a = ev.step.audit, st = { cls: COLORCLS[a.verdict] || "info", label: LABELS[a.verdict] || a.verdict }; fin[legKey(ev.step)] = a.verdict; line(`${badge(st)} ${esc(itemTitle(ev.step.action))}`, st.cls); }
+        else if (ev.event === "run_done") { const v = Object.values(fin), ok = v.every(x => x === "MATCH"), wait = v.includes("REVIEW"), blocked = v.includes("DRIFT");
+          line(ok ? "<b>Approved.</b> Every booking is inside the policy and a receipt was issued for each." : wait ? "<b>Sent for approval.</b> The bookings that are outside the policy are with a finance manager; you will see their decision here." : blocked ? "<b>Some bookings were blocked.</b> See the reasons in your list." : "<b>Done.</b>", ok ? "ok" : wait ? "warn" : "bad"); }
         else if (ev.event === "error") line("Error: " + esc(ev.message), "bad"); } }
   } catch (e) { line("Could not run: " + esc(e.message), "bad"); }
-  nlBusy = false; $("nl-go").disabled = false; scheduleMetrics();
+  nlBusy = false; $("t-go").textContent = "Check against policy and book"; tfEstimate(); scheduleMetrics();
 }
 
-/* ============================== page: Approvals ============================== */
-async function resolveReview(id, act, comment, force) {
-  const res = resolvedMap(), e = S.rows.find(x => x.id === id);
-  if (!force && !can("approve")) { toast("Only a finance manager or operator can decide requests.", true); return false; }
+/* ============================== page: Approvals (finance manager) ============================== */
+async function resolveReview(id, act, comment, force, quiet) {
+  const e = S.rows.find(x => x.id === id);
+  if (!force && !can("approve")) { toast("Only a finance manager can decide requests.", true); return false; }
   if (!force && e && e.requester === myName() && !S.session.guest) { toast("You cannot decide your own request. Another approver must.", true); return false; }
   try {
     const r = await post("/" + act + "/" + id, { approver: myName(), comment: comment || undefined });
     S.localRes[id] = { verdict: r.verdict, by: myName(), comment: comment || "", ts: new Date().toISOString() };
-    legsMarkResolved(id, r.verdict.toLowerCase()); toast(r.verdict === "APPROVED" ? "Approved. A receipt was issued." : "Rejected. The request will not proceed."); scheduleMetrics(); refresh(); return true;
+    legsMarkResolved(id, r.verdict.toLowerCase()); if (!quiet) toast(r.verdict === "APPROVED" ? "Approved. A receipt was issued." : "Rejected. The request will not proceed."); scheduleMetrics(); refresh(); return true;
   } catch (er) { toast(er.message, true); return false; }
 }
-function approvalCard(e, res) {
-  const a = e.action || {}, c = S.mandate?.mandate?.constraints || {}, cap = policyCap(a, c), over = cap != null && a.price > cap ? a.price - cap : 0, own = e.requester === myName() && !S.session.guest;
-  return `<div class="item warn"><span class="mark"></span><div class="body"><div class="t">${esc(itemTitle(a))}</div>
-    <div class="meta" style="margin-top:2px"><span><b>${esc(e.requester || "An agent")}</b> asked ${esc(ago(e.ts))}</span>${isSim(e) ? `<span class="tag sim">Simulated</span>` : ""}${e.request ? `<span>“${esc(e.request)}”</span>` : ""}</div>
-    <div class="impact warn" style="margin-top:10px"><b>Why it needs you:</b> ${esc(short(e.explanation, 200))}${over ? `<br>That is <b>${usd(over)} over</b> the ${usd(cap)} ${esc(kindOf(a))} limit in the policy.` : ""}</div>
-    ${a.note ? `<p class="small" style="margin:8px 0 0">The requester added: “${esc(a.note)}”. A note does not count as approval.</p>` : ""}
-    ${e.counterfactual ? `<p class="small" style="margin:8px 0 0">${esc(e.counterfactual.summary)}</p>` : ""}
-    <div class="row" style="margin-top:12px"><input class="input grow" style="max-width:320px;min-width:200px" data-comment="${esc(e.id)}" placeholder="Add a comment (optional)" maxlength="200" aria-label="Comment">
-      <button class="btn ok" data-act="approve" data-id="${esc(e.id)}" ${own ? "disabled" : ""}>Approve and issue receipt</button><button class="btn danger" data-act="reject" data-id="${esc(e.id)}" ${own ? "disabled" : ""}>Reject</button></div>
+async function decideGroup(ids, act, comment) {
+  let n = 0; for (const id of ids) { if (await resolveReview(id, act, comment, false, true)) n++; else break; }
+  if (n) toast(act === "approve" ? `Approved ${plural(n, "booking")}. ${n === 1 ? "A receipt was" : "Receipts were"} issued.` : `Rejected ${plural(n, "booking")}.`, false);
+  return n === ids.length;
+}
+function pendingGroups(res) {
+  const groups = [], by = {};
+  for (const e of pendingRows(res)) {
+    const t = tripOf(e);
+    if (t?.id) { const g = by[t.id] ||= (groups.push({ key: t.id, trip: t, pend: [], requester: e.requester, ts: e.ts, request: e.request }), groups[groups.length - 1]); g.pend.push(e); if (e.ts < g.ts) g.ts = e.ts; }
+    else groups.push({ key: e.id, trip: null, pend: [e], requester: e.requester, ts: e.ts, request: e.request });
+  }
+  return groups.sort((a, b) => (a.trip ? daysTo(a.trip.depart_date) : 999) - (b.trip ? daysTo(b.trip.depart_date) : 999) || new Date(a.ts) - new Date(b.ts));
+}
+function waited(ts) { const m = Math.max(0, Math.round((Date.now() - new Date(ts)) / 60000)); return m < 1 ? "just now" : m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; }
+function approvalCard(g, res) {
+  const c = S.mandate?.mandate?.constraints || {}, t = g.trip, own = g.requester === myName() && !S.session.guest, ids = g.pend.map(e => e.id);
+  const all = t ? finals({ entries: S.rows.filter(e => tripOf(e)?.id === t.id).slice().reverse() }) : g.pend, sts = all.map(e => statusOf(e, res));
+  const held = g.pend.reduce((s, e) => s + stake(e.action), 0), total = all.reduce((s, e, i) => s + (sts[i].cls === "bad" ? 0 : stake(e.action)), 0), urgent = t && daysTo(t.depart_date) < 7;
+  const byReason = new Map();
+  g.pend.forEach(e => { const a = e.action, cap = policyCap(a, c), over = cap != null && a.price > cap ? a.price - cap : 0, k = reasonOf(e) + (over ? `|${over}|${cap}|${kindOf(a)}` : "");
+    (byReason.get(k) || byReason.set(k, { text: reasonOf(e), over, cap, kind: kindOf(a), legs: [] }).get(k)).legs.push(LEGL[a.leg] || KINDS[kindOf(a)] || "Booking"); });
+  const reasons = [...byReason.values()].map(r => `<li>${byReason.size > 1 || r.legs.length < g.pend.length ? `<b>${esc(r.legs.join(", "))}:</b> ` : r.legs.length > 1 ? `<b>All ${r.legs.length} bookings:</b> ` : ""}${esc(r.text)}${r.over ? ` That is <b>${usd(r.over)} over</b> the ${usd(r.cap)} ${esc(r.kind)} limit${r.kind === "hotel" ? " per night" : ""}.` : ""}</li>`).join("");
+  const notes = [...new Set(g.pend.map(e => e.action?.note).filter(Boolean))];
+  return `<div class="item warn"><span class="mark"></span><div class="body">
+    ${t ? tripHead(t) : `<div class="t">${esc(itemTitle(g.pend[0].action))}</div>`}
+    <div class="meta"><span><b>${esc(g.requester || "An agent")}</b> asked ${esc(fmtWhen(g.ts))}</span><span>waiting ${esc(waited(g.ts))}</span>${urgent ? `<span class="tag warn">Departs in ${plural(Math.max(0, daysTo(t.depart_date)), "day")}</span>` : t ? countdown(t) : ""}${isSim(g.pend[0]) ? `<span class="tag sim">Simulated</span>` : ""}</div>
+    ${all.length > 1 ? `<div class="itin">${all.map(e => legRow(e, res, true)).join("")}</div>` : ""}
+    <div class="impact warn" style="margin-top:10px"><b>Why it needs you</b><ul class="reasons">${reasons}</ul></div>
+    ${t?.justification ? `<p class="small" style="margin:8px 0 0">Business reason from ${esc(g.requester || "the requester")}: “${esc(t.justification)}”</p>` : ""}
+    ${notes.map(n => `<p class="small" style="margin:6px 0 0">Note added to the request: “${esc(n)}”. A note does not count as approval.</p>`).join("")}
+    <div class="totals"><span>Needs your decision <b>${usd(held)}</b></span><span>Whole trip ${usd(total)}</span></div>
+    <div class="row" style="margin-top:12px"><input class="input grow" style="max-width:320px;min-width:200px" data-comment="${esc(g.key)}" placeholder="Add a comment (optional)" maxlength="200" aria-label="Comment">
+      <button class="btn ok" data-act="approve" data-ids="${esc(ids.join(","))}" data-key="${esc(g.key)}" ${own ? "disabled" : ""}>Approve${ids.length > 1 ? " all " + ids.length : ""} and issue receipt${ids.length > 1 ? "s" : ""}</button><button class="btn danger" data-act="reject" data-ids="${esc(ids.join(","))}" data-key="${esc(g.key)}" ${own ? "disabled" : ""}>Reject${ids.length > 1 ? " all" : ""}</button></div>
     ${own ? `<p class="small" style="margin:8px 0 0">This is your own request, so someone else has to decide it.</p>` : ""}</div></div>`;
 }
 PAGES.approvals = {
-  title: () => "Approvals", sub: () => "Requests that went beyond what the policy allows on its own. Nothing is paid until a person approves it, and every decision is recorded.",
+  title: () => "Approvals", sub: () => "Trips and purchases that went beyond what the policy allows on its own, soonest departure first. Nothing is paid until a person approves it, and every decision is recorded.",
   mount(el) {
     el.innerHTML = `<div class="kpis" id="a-kpis"></div><div class="card"><div class="subtabs" role="tablist" id="a-tabs" style="padding:0 12px;margin:0"></div><div id="a-list" class="list"></div></div>`;
     $("a-tabs").onclick = e => { const b = e.target.closest("[data-tab]"); if (b) { S.f.apTab = b.dataset.tab; this.update(); } };
   },
   update() {
     if (!$("a-list")) return;
-    const res = resolvedMap(), pend = pendingRows(res), done = S.rows.filter(e => isDecision(e) && inSession(e));
-    const held = pend.reduce((s, e) => s + (e.counterfactual?.total_usd || e.action?.price || 0), 0);
-    $("a-kpis").innerHTML = kpiHtml([["Waiting for a decision", pend.length, usd(held) + " on hold"], ["Approved", done.filter(e => e.verdict === "APPROVED").length, "this session"], ["Rejected", done.filter(e => e.verdict === "REJECTED").length, "this session"], ["Blocked by Anvil", S.metrics?.totals?.drift ?? "…", S.metrics ? usd(S.metrics.impact.blocked_usd) + " stopped" : ""]]);
-    $("a-tabs").innerHTML = `<button role="tab" data-tab="wait" aria-selected="${S.f.apTab === "wait"}">Waiting<span class="n">${pend.length}</span></button><button role="tab" data-tab="done" aria-selected="${S.f.apTab === "done"}">Decided<span class="n">${done.length}</span></button>`;
-    $("a-list").innerHTML = S.f.apTab === "wait" ? (pend.map(e => approvalCard(e, res)).join("") || emptyBox("You are all caught up", "Requests that need a person will appear here the moment an agent submits one."))
+    const res = resolvedMap(), groups = pendingGroups(res), pend = pendingRows(res), done = S.rows.filter(e => isDecision(e) && inSession(e));
+    const held = pend.reduce((s, e) => s + stake(e.action), 0), soon = groups.filter(g => g.trip && daysTo(g.trip.depart_date) < 7).length;
+    $("a-kpis").innerHTML = kpiHtml([["Waiting for a decision", groups.length, `${plural(pend.length, "booking")} · ${usd(held)} on hold`], ["Departing within 7 days", soon, "decide these first"], ["Decided this session", done.length, `${done.filter(e => e.verdict === "APPROVED").length} approved · ${done.filter(e => e.verdict === "REJECTED").length} rejected or withdrawn`], ["Blocked by Anvil", S.metrics?.totals?.drift ?? "…", S.metrics ? usd(S.metrics.impact.blocked_usd) + " stopped" : ""]]);
+    $("a-tabs").innerHTML = `<button role="tab" data-tab="wait" aria-selected="${S.f.apTab === "wait"}">Waiting<span class="n">${groups.length}</span></button><button role="tab" data-tab="done" aria-selected="${S.f.apTab === "done"}">Decided<span class="n">${done.length}</span></button>`;
+    $("a-list").innerHTML = S.f.apTab === "wait" ? (groups.map(g => approvalCard(g, res)).join("") || emptyBox("You are all caught up", "Requests that need a person will appear here the moment an agent submits one."))
       : (done.map(e => feedRow(e, res, false)).join("") || emptyBox("No decisions yet", "Approved and rejected requests are listed here."));
   },
 };
@@ -407,7 +566,7 @@ PAGES.activity = {
   title: () => "Activity", sub: () => "Every decision Anvil made, as it happens. Select a row for the reason, the money at stake and the record behind it.",
   mount(el) {
     el.innerHTML = `<div class="card"><div class="card-h"><div class="chips" id="act-filters">${[["all", "All"], ["REVIEW", "Needs approval"], ["DRIFT", "Blocked"], ["MATCH", "Approved"]].map(([k, l]) => `<button class="chip" data-act="afilter" data-k="${k}" aria-pressed="${S.f.status === k}">${l}</button>`).join("")}</div>
-      <div class="row"><input class="input" id="act-q" style="width:200px" placeholder="Search requester or vendor" value="${esc(S.f.q)}" aria-label="Search activity"><label class="switch"><input type="checkbox" id="act-sim" ${S.f.sim ? "checked" : ""}> Show simulated</label></div></div>
+      <div class="row"><input class="input" id="act-q" style="width:200px" placeholder="Search requester, vendor, city" value="${esc(S.f.q)}" aria-label="Search activity"><label class="switch"><input type="checkbox" id="act-sim" ${S.f.sim ? "checked" : ""}> Show simulated</label><button class="btn sm" data-act="csv">Export CSV</button></div></div>
       <div id="act-list" class="list"></div><div class="card-b" id="act-more" hidden><button class="btn" data-act="more">Show more</button></div></div>`;
     $("act-q").oninput = e => { S.f.q = e.target.value; this.update(); };
     $("act-sim").onchange = e => { S.f.sim = e.target.checked; store.set("anvil-showsim", S.f.sim ? "1" : "0"); this.update(); };
@@ -417,16 +576,36 @@ PAGES.activity = {
     const res = resolvedMap(), q = S.f.q.trim().toLowerCase(), lim = S.f.limit || 40;
     let list = S.rows.filter(inSession).filter(e => S.f.sim || !isSim(e));
     if (S.f.status !== "all") list = list.filter(e => S.f.status === "REVIEW" ? e.verdict === "REVIEW" && !res[e.id] : e.verdict === S.f.status);
-    if (q) list = list.filter(e => `${e.requester || ""} ${e.action?.vendor || ""} ${e.explanation || ""}`.toLowerCase().includes(q));
+    if (q) list = list.filter(e => `${e.requester || ""} ${e.action?.vendor || ""} ${e.explanation || ""} ${tripOf(e)?.destination || ""} ${tripOf(e)?.origin || ""} ${tripOf(e)?.cost_center || ""}`.toLowerCase().includes(q));
+    S.actList = list;
     $("act-list").innerHTML = list.slice(0, lim).map(e => feedRow(e, res, effRole() === "operator")).join("") || emptyBox("No activity matches", S.rows.length ? "Change the filter or search." : "Decisions will appear here as agents act.");
     $("act-more").hidden = list.length <= lim;
   },
 };
 
+function exportCsv() {
+  const res = resolvedMap(), list = S.actList || [], q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const head = ["Time", "Requester", "Simulated", "Trip", "From", "To", "Departs", "Returns", "Cost centre", "Purpose", "Booking", "Vendor", "Amount (USD)", "Status", "Decided by", "Reason"];
+  const rows = list.filter(e => e.action?.type !== "control").map(e => { const a = e.action || {}, t = a.trip || {}, st = statusOf(e, res);
+    return [e.ts, e.requester, isSim(e) ? "yes" : "", t.id, t.origin, t.destination, t.depart_date, t.return_date, t.cost_center, t.purpose, LEGL[a.leg] || KINDS[kindOf(a)] || a.type, a.vendor, stake(a), st.label, res[e.id]?.by || e.approver || "", e.explanation].map(q).join(","); });
+  const blob = new Blob([[head.map(q).join(","), ...rows].join("\n")], { type: "text/csv" }), a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = `anvil-activity-${isoDay(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`Exported ${plural(rows.length, "row")}.`);
+}
+const notified = new Set(); let notifyReady = false;
+function notifyDecisions() {                            // tells a traveller the moment someone decides their request
+  if (!S.session || !S.live) return;
+  const mineDecisions = S.rows.filter(e => isDecision(e) && e.requester === myName() && !e.action?.withdrawn);
+  if (!notifyReady) { mineDecisions.forEach(e => notified.add(e.id)); notifyReady = true; return; }
+  mineDecisions.filter(e => !notified.has(e.id)).forEach(e => { notified.add(e.id); const t = tripOf(e);
+    toast(`${e.approver || "A manager"} ${e.verdict === "APPROVED" ? "approved" : "rejected"} your ${t ? `trip to ${t.destination}` : "request"}${t ? ` (${LEGL[e.action.leg] || KINDS[kindOf(e.action)]})` : ""}.`, e.verdict !== "APPROVED"); });
+}
+
 /* ============================== page: Spend ============================== */
 PAGES.spend = {
   title: () => "Spend", sub: () => "What has been approved against the limits in the policy, and what Anvil kept from being spent.",
-  mount(el) { el.innerHTML = `<div class="kpis" id="s-kpis"></div><div class="grid2"><div class="card"><div class="card-h"><h3>Approved spend against policy limits</h3></div><div class="card-b" id="s-caps"></div></div><div class="card"><div class="card-h"><h3>By requester</h3></div><div class="card-b tscroll" id="s-req"></div></div></div>`; },
+  mount(el) { el.innerHTML = `<div class="kpis" id="s-kpis"></div><div class="grid2"><div class="card"><div class="card-h"><h3>Approved spend against policy limits</h3></div><div class="card-b" id="s-caps"></div></div><div class="card"><div class="card-h"><h3>By requester</h3></div><div class="card-b tscroll" id="s-req"></div></div></div>
+    <div class="grid2" style="margin-top:16px"><div class="card"><div class="card-h"><h3>By cost centre</h3></div><div class="card-b tscroll" id="s-cc"></div></div><div class="card"><div class="card-h"><h3>Emergency stop</h3></div><div class="card-b" id="s-emg"></div></div></div>`; },
   update() {
     const m = S.metrics; if (!$("s-kpis")) return;
     if (!m) { $("s-kpis").innerHTML = S.metricsErr ? "" : `<div class="skeleton" style="grid-column:1/-1"></div>`; $("s-caps").innerHTML = S.metricsErr ? errBox(S.metricsErr, "reload") : ""; return; }
@@ -439,7 +618,14 @@ PAGES.spend = {
       r.n++; const st = statusOf(e, res);
       if (e.verdict === "MATCH" || (e.verdict === "REVIEW" && res[e.id]?.verdict === "APPROVED")) r.ok += e.action.price || 0; else if (e.verdict === "DRIFT") r.blocked += e.counterfactual?.total_usd || 0; else if (e.verdict === "REVIEW" && st.cls === "warn") r.held += e.action.price || 0; });
     const rows = Object.entries(by).sort((a, b) => b[1].ok - a[1].ok).slice(0, 12);
-    $("s-req").innerHTML = rows.length ? `<table><tr><th>Requester</th><th>Requests</th><th>Approved</th><th>Blocked</th></tr>${rows.map(([n, r]) => `<tr><td>${esc(n)}${r.sim ? ' <span class="tag sim">Simulated</span>' : ""}</td><td>${r.n}</td><td>${usd(r.ok)}</td><td>${usd(r.blocked)}</td></tr>`).join("")}</table>` : emptyBox("No requests yet");
+    const cc = {}, ccRow = k => cc[k] ||= { trips: new Set(), ok: 0, wait: 0 };
+    S.rows.filter(inSession).forEach(e => { if (e.cart_mandate) { const r = ccRow(tripOf(e)?.cost_center || "Unassigned"); r.ok += e.cart_mandate.total || 0; if (tripOf(e)) r.trips.add(tripOf(e).id); } });
+    pendingRows(res).forEach(e => { const r = ccRow(tripOf(e)?.cost_center || "Unassigned"); r.wait += stake(e.action); if (tripOf(e)) r.trips.add(tripOf(e).id); });
+    const ccs = Object.entries(cc).sort((a, b) => b[1].ok - a[1].ok);
+    $("s-cc").innerHTML = ccs.length ? `<table><tr><th>Cost centre</th><th>Trips</th><th>Approved</th><th>Awaiting</th></tr>${ccs.map(([k, r]) => `<tr><td>${esc(k === "Unassigned" ? k : ccName(k))}</td><td>${r.trips.size}</td><td>${usd(r.ok)}</td><td>${usd(r.wait)}</td></tr>`).join("")}</table>` : emptyBox("No spend yet", "Approved bookings are grouped by the cost centre on the trip.");
+    const rev = (S.controls || {}).mandate_revoked;
+    $("s-emg").innerHTML = `<div class="row between"><span>Spending policy</span><span class="badge ${rev ? "bad" : "ok"}">${rev ? "Revoked" : "Active"}</span></div><p class="small">If you see something wrong, revoke the policy: every request from every agent is blocked immediately and the action is written to the audit trail. It restores itself after a few minutes.</p><button class="btn ${rev ? "primary" : "danger"}" data-act="ctl" data-ctl="${rev ? "restore" : "revoke"}">${rev ? "Restore policy" : "Revoke policy"}</button>`;
+    $("s-req").innerHTML = rows.length ? `<table><tr><th>Requester</th><th>Bookings</th><th>Approved</th><th>Blocked</th></tr>${rows.map(([n, r]) => `<tr><td>${esc(n)}${r.sim ? ' <span class="tag sim">Simulated</span>' : ""}</td><td>${r.n}</td><td>${usd(r.ok)}</td><td>${usd(r.blocked)}</td></tr>`).join("")}</table>` : emptyBox("No requests yet");
   },
 };
 
@@ -453,12 +639,17 @@ PAGES.policy = {
         <div class="line">${badge({ cls: "warn", label: "Needs approval" })}<span>Not forbidden, but beyond what was authorized, such as a fare over the limit. A finance manager decides.</span></div>
         <div class="line">${badge({ cls: "bad", label: "Blocked" })}<span>Not allowed, such as the wrong class, an unapproved supplier, a split charge or a hidden add-on. The agent is told why and can propose a compliant alternative.</span></div>
         <p class="small" style="margin:6px 0 0">Anvil reads the whole request, including notes. Text claiming “the manager pre-approved this” never counts: only the signed policy and a person's decision do.</p></div></div></div>
+      <div class="card" style="margin-top:16px"><div class="card-h"><h3>Who can do what</h3></div><div class="card-b tscroll"><table><tr><th>Role</th><th>Can</th><th>Cannot</th></tr>
+        <tr><td><b>Employee</b></td><td>Plan trips, follow them, withdraw a pending request</td><td>Approve anything, see other people's trips</td></tr>
+        <tr><td><b>Finance manager</b></td><td>Approve or reject exceptions, see all activity and spend by cost centre, stop all spending in an emergency</td><td>Decide their own request, change agent settings</td></tr>
+        <tr><td><b>Platform operator</b></td><td>Pause agents, read the audit trail, export evidence, review quality</td><td>Approve spend: the people who run the agents cannot also release money</td></tr></table>
+        <p class="small" style="margin:10px 0 0">In this demo, sign-in only chooses which screens you see. A production deployment connects your company sign-in so the server enforces these rules.</p></div></div>
       <div id="p-ops" class="stack" style="margin-top:16px"></div>`;
   },
   update() {
     const t = mandateTerms(); if (!$("p-terms")) return;
     $("p-sig").innerHTML = t ? `<span class="badge ${t.valid ? "ok" : "bad"}">${t.valid ? "Signature verified" : "Signature invalid"}</span>` : "";
-    $("p-terms").innerHTML = t ? `<dl class="terms">${t.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}<dt>Signed by</dt><dd>${esc(t.m.user)} <span class="muted" style="font-weight:400">(finance owner)</span></dd></dl>` : `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
+    $("p-terms").innerHTML = t ? `<dl class="terms">${t.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}${tripRules().map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}<dt>Signed by</dt><dd>${esc(t.m.user)} <span class="muted" style="font-weight:400">(finance owner)</span></dd></dl>` : `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
     if (effRole() !== "operator") { $("p-ops").innerHTML = ""; return; }
     const c = S.controls || {}, I = S.ap2, A = S.metrics?.ap2 || {};
     $("p-ops").innerHTML = `<div class="grid2"><div class="card"><div class="card-h"><h3>Policy controls</h3></div><div class="card-b">
@@ -486,7 +677,7 @@ PAGES.overview = {
     else $("o-kpis").innerHTML = S.metricsErr ? "" : `<div class="skeleton" style="grid-column:1/-1"></div>`;
     $("o-feed").innerHTML = S.rows.filter(inSession).slice(0, 8).map(e => feedRow(e, res, true)).join("") || emptyBox("No decisions yet", "Submit a request, or switch on simulated traffic.");
     const c = S.controls || {}, items = [], pend = pendingRows(res).length;
-    if (pend) items.push(`<div class="line">${badge({ cls: "warn", label: pend + " waiting" })}<span><a href="#/approvals">Approvals need a decision</a></span></div>`);
+    if (pend) items.push(`<div class="line">${badge({ cls: "warn", label: pend + " waiting" })}<span>Waiting with the finance managers. ${can("approve") ? '<a href="#/approvals">Decide now</a>' : "Approvals are not an operator action."}</span></div>`);
     if (c.mandate_revoked) items.push(`<div class="line">${badge({ cls: "bad", label: "Revoked" })}<span>The policy is revoked. <a href="#/policy">Restore it</a></span></div>`);
     (c.paused_agents || []).forEach(k => items.push(`<div class="line">${badge({ cls: "warn", label: "Paused" })}<span>${esc(KINDS[k])} agent. <a href="#/agents">Resume it</a></span></div>`));
     $("o-attn").innerHTML = items.join("") || `<div class="line">${badge({ cls: "ok", label: "All clear" })}<span>Nothing needs you right now.</span></div>`;
@@ -533,7 +724,7 @@ PAGES.audit = {
     $("blocks").innerHTML = [...list].reverse().map((e, i) => `${i ? '<span class="lnk"></span>' : ""}<span class="blk ${esc(e.verdict)}" data-id="${esc(e.id)}" title="${esc(e.explanation)}">${esc(e.verdict.slice(0, 5))}<br>${esc((e.hash || "").slice(0, 6))}</span>`).join("") || '<span class="small">No entries in this session yet.</span>';
     $("trail").innerHTML = list.map(e => { const a = e.action || {}, st = statusOf(e, {});
       const what = a.type === "control" ? `Control: ${esc(a.control)}${a.agent ? " " + esc(a.agent) : ""}` : a.vendor ? esc(itemTitle(a)) : esc(a.type || "");
-      return `<div class="entry ${st.cls}"><div class="row between"><span>${badge(st)} <b>${what}</b> <span class="muted">${e.requester ? "· " + esc(e.requester) : ""}</span></span><span class="small">${esc(new Date(e.ts).toLocaleTimeString())}</span></div><p style="margin:6px 0 0">${esc(e.explanation)}</p>
+      return `<div class="entry ${st.cls}"><div class="row between"><span>${badge(st)} <b>${what}</b> <span class="muted">${e.requester ? "· " + esc(e.requester) : ""}</span></span><span class="small">${esc(fmtWhen(e.ts))}</span></div>${tripOf(e) ? `<div class="when-line">${esc(tripOf(e).origin)} → ${esc(tripOf(e).destination)} · ${esc(tripRange(tripOf(e)))} · ${esc(tripOf(e).cost_center || "")}</div>` : ""}<p style="margin:6px 0 0">${esc(e.explanation)}</p>
         ${e.counterfactual ? `<div class="chainline">${esc(e.counterfactual.summary)}</div>` : ""}${techBlock(e)}</div>`; }).join("") || emptyBox("No entries in this session yet");
   },
 };
@@ -607,7 +798,8 @@ function markPaused() {
 }
 function resetRun() { legs = {}; clearNodes(); $("ticker").innerHTML = ""; renderLegs(); }
 function tick(text, cls = "info") { const d = document.createElement("div"); d.className = "tk " + cls; d.innerHTML = text; const t = $("ticker"); t.prepend(d); while (t.children.length > 40) t.lastChild.remove(); }
-const actionLine = a => `<div style="font-size:16px;font-weight:650;margin:3px 0">${esc(a.vendor)} · ${usd(a.price)}${a.type === "book_hotel" ? "/night" : ""}</div><div class="small">${esc([a.class, a.refundable === false ? "non-refundable" : a.refundable ? "refundable" : "", a.destination].filter(Boolean).join(" · "))} · via ${esc(a.supplier)}</div>`;
+const schedText = a => a.depart ? `${a.flight_no || ""} ${fmtDay(a.depart)} ${fmtTime(a.depart)} ${a.from_city} → ${a.to_city}` : a.check_in ? `${plural(a.nights || 1, "night")} from ${fmtDay(a.check_in)}` : a.pickup ? `${a.route || "Transfer"} ${fmtDay(a.pickup)} ${fmtTime(a.pickup)}` : "";
+const actionLine = a => `<div style="font-size:16px;font-weight:650;margin:3px 0">${esc(a.vendor)} · ${usd(a.price)}${a.type === "book_hotel" ? "/night" : ""}</div>${schedText(a) ? `<div class="small">${esc(schedText(a))}</div>` : ""}<div class="small">${esc([a.class, a.refundable === false ? "non-refundable" : a.refundable ? "refundable" : "", a.destination].filter(Boolean).join(" · "))} · via ${esc(a.supplier)}</div>`;
 function ap2Line(a, t) {
   const x = a.ap2; if (!x) return ""; if (x.error) return `<div class="ap2 muted">AP2 layer unavailable for this action: ${esc(x.error)}. Not blocked.</div>`;
   if (a.source === "ap2-constraints") return `<div class="ap2 bad">AP2 mandate limits rejected this (deterministic gate, official SDK)</div>`; if (!x.verified) return "";
@@ -625,7 +817,7 @@ function renderLegs() {
         ${badge(st)} <span class="small">${a.source === "control" ? "operator control" : a.source === "bypass" ? "no check performed" : "Gemini audit"}${a.telemetry ? ` · ${(a.telemetry.latency_ms / 1000).toFixed(1)}s · ${usd4(a.telemetry.cost_usd)}` : ""}</span>
         <p class="small" style="margin:6px 0 0">${esc(a.explanation)}</p>${a.violations?.length && a.verdict !== "MATCH" ? `<ul class="viol">${a.violations.map(v => `<li>${esc(v)}</li>`).join("")}</ul>` : ""}
         ${cf ? `<div class="impact">${esc(cf.summary)}</div>` : ""}${ap2Line(a, t)}${t.cart ? `<div class="receipt">Cart Mandate <span class="mono">${esc(t.cart.cartId.slice(0, 10))}…</span> signed · ${usd(t.cart.total)}</div>` : ""}
-        ${a.verdict === "REVIEW" ? (t.resolved ? `<div class="needs">Manager ${esc(t.resolved)} this.</div>` : replayMode ? `<div class="needs"><b>Needs manager approval</b></div>` : `<div class="needs"><b>Needs manager approval</b> — beyond what was authorized.<br><button class="btn ok sm" data-act="approve" data-id="${esc(t.id)}">Approve</button><button class="btn danger sm" data-act="reject" data-id="${esc(t.id)}">Reject</button></div>`) : ""}</div>`; }).join("");
+        ${a.verdict === "REVIEW" ? (t.resolved ? `<div class="needs">Manager ${esc(t.resolved)} this.</div>` : replayMode ? `<div class="needs"><b>Needs manager approval</b></div>` : `<div class="needs"><b>Needs manager approval</b> — beyond what was authorized. <span class="small">(Demo stand-in for the finance manager.)</span><br><button class="btn ok sm" data-act="approve" data-id="${esc(t.id)}">Approve</button><button class="btn danger sm" data-act="reject" data-id="${esc(t.id)}">Reject</button></div>`) : ""}</div>`; }).join("");
     if (L.phase === "auditing") body += `<div class="skeleton"></div><div class="small">Gemini is auditing against the policy…</div>`; if (L.phase === "correcting") body += `<div class="skeleton"></div><div class="small">Agent is re-planning from the stated violations…</div>`;
     return `<div class="card leg ${esc(final)}"><div class="eyebrow">${label}</div>${stamp}${body}</div>`; }).join("");
 }
@@ -784,11 +976,21 @@ document.addEventListener("click", async ev => {
   if (act === "afilter") { S.f.status = el.dataset.k; S.f.limit = 40; document.querySelectorAll("#act-filters .chip").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === S.f.status)); refresh(); return; }
   if (act === "more") { S.f.limit = (S.f.limit || 40) + 40; refresh(); return; }
   if (act === "reload") { loadMetrics(); return; } if (act === "reloadscores") { loadScores(); return; }
-  if (act === "approve" || act === "reject") { const c = document.querySelector(`[data-comment="${CSS.escape(id)}"]`)?.value.trim(); el.disabled = true; if (!(await resolveReview(id, act, c))) el.disabled = false; return; }
+  if (act === "approve" || act === "reject") {
+    const key = el.dataset.key || id, c = document.querySelector(`[data-comment="${CSS.escape(key)}"]`)?.value.trim(); el.disabled = true;
+    const ok = el.dataset.ids ? await decideGroup(el.dataset.ids.split(","), act, c) : await resolveReview(id, act, c, !!el.closest("#stagebox"));   // the demo studio's approve buttons stand in for the finance manager
+    if (!ok) el.disabled = false; return; }
+  if (act === "withdraw") {
+    if (!(await confirmDlg("Withdraw this request?", "Nothing will be booked and the approver will no longer see it. You can plan the trip again at any time.", "Withdraw request", true))) return;
+    el.disabled = true; try { for (const i of el.dataset.ids.split(",")) { await post("/withdraw/" + i, { requester: myName() }); S.localRes[i] = { verdict: "REJECTED", by: myName(), comment: "", ts: new Date().toISOString(), withdrawn: true }; } toast("Request withdrawn."); scheduleMetrics(); refresh(); } catch (e) { toast(e.message, true); el.disabled = false; } return; }
+  if (act === "newtrip") { openForm(true); return; }
+  if (act === "closeform") { openForm(false); return; }
+  if (act === "csv") { exportCsv(); return; }
   if (act === "ap2verify") { el.disabled = true; const out = $("ap2r-" + id); try { const r = await api("/api/ap2/verify/" + id); if (out) out.textContent = r.verified ? ` ✓ re-verified by the SDK: ${usd(r.amount_minor / 100)} to ${r.payee}` : ` ✗ ${r.error}`; } catch (e) { if (out) out.textContent = " ✗ " + e.message; } el.disabled = false; return; }
   if (act === "ctl") {
-    if (!can("operate")) { toast("Operator access is required for controls.", true); return; }
-    const c = el.dataset.ctl, ag = el.dataset.agent, msg = { pause: [`Pause the ${ag} agent?`, "Its next request is blocked without calling any model. It resumes by itself in about three minutes.", "Pause agent"], revoke: ["Revoke the spending policy?", "Every request from every agent is blocked until it is restored. It restores itself after a few minutes.", "Revoke policy"] }[c];
+    const c = el.dataset.ctl, ag = el.dataset.agent;
+    if (!(can("operate") || (can("emergency") && ["revoke", "restore"].includes(c)))) { toast("Operator access is required for controls.", true); return; }
+    const msg = { pause: [`Pause the ${ag} agent?`, "Its next request is blocked without calling any model. It resumes by itself in about three minutes.", "Pause agent"], revoke: ["Revoke the spending policy?", "Every request from every agent is blocked until it is restored. It restores itself after a few minutes.", "Revoke policy"] }[c];
     if (msg && !(await confirmDlg(msg[0], msg[1], msg[2], true))) return;
     el.disabled = true; try { await post("/api/control", { action: c, agent: ag }); toast("Done. The control was written to the audit trail."); await loadMetrics(); } catch (e) { toast(e.message, true); el.disabled = false; } return;
   }

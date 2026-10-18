@@ -46,3 +46,30 @@ Method: read the whole front end (`index.html` before the rewrite, 1,131 lines),
 - *My requests* is built from the 160 most recent entries in the live feed. With simulated traffic on for a long time an employee's oldest requests scroll out. A per-requester Firestore query with a composite index is the production fix.
 - The "Demo studio" runs are real calls through the real pipeline, so they appear in Activity and the Audit trail (as "Demo agent").
 - Chart-style visuals are deliberately simple (bars and tables with text labels). There is no time-series view yet.
+
+---
+
+# Round 2: would an enterprise actually run this? (2026-10-18)
+
+The first pass fixed *who sees what*. The second pass asked a harder question: does the product model what a company really does when an employee travels? It did not. A "trip" was three loose purchases with no dates, no round trip, no traveller, no cost centre and no business reason, and the approver saw one booking at a time. Everything below is fixed and covered by `scripts/e2e_ui.py` (all checks pass) and by new checks in `tests/test_e2e_local.py`.
+
+| # | Gap against real enterprise travel | Fix |
+|---|---|---|
+| 20 | **No dates or times anywhere.** Nothing said when a trip leaves, returns or when a booking was made. | Every booking carries real dates and times: flight number and departure/arrival, hotel check-in/out and nights, airport pickup time. Every request shows an absolute timestamp ("18 Oct, 14:32") and the relative one. |
+| 21 | **No round trips or one-way trips.** A request was a single flight. | A trip is now outbound flight, airport to hotel, hotel (nights from the dates), hotel to airport, return flight. One way, round trip, hotel and transfers are all optional. Each leg is checked against its own limit; a 3-night stay is priced for every night and its receipt covers the full stay. |
+| 22 | **No trip context.** No purpose, cost centre or business reason, so finance could not charge or judge a request. | The form asks for purpose, cost centre and a business reason (required when the trip needs an exception). They travel with every booking, show on the approval card, in Spend by cost centre and in the CSV export. |
+| 23 | **Policy that only looked at prices.** Real policy also has advance-notice and trip-length rules. | Two company rules run beside the signed spending limits: at least 7 days' notice and at most 14 days away. Breaking one is escalated as an exception, never blocked, and the form warns before you submit. They are deterministic code, not model judgement, and the auditor never sees trip dates, so the 26-scenario evaluation is unaffected. |
+| 24 | **Approving a trip meant approving five separate items.** | Approvals are grouped by trip: one card with the whole itinerary, who asked and when, the dates, how long it has waited, the departure countdown, and one comment with *Approve all* / *Reject all*. Queue sorted by soonest departure. The reason shared by several legs ("booked 3 days ahead") is stated once. |
+| 25 | **No way to take a request back.** | The requester can withdraw a pending trip. Recorded in the audit chain as a decision by the requester, and it leaves the approval queue. |
+| 26 | **Employees were not told when someone decided.** | A notification appears the moment a manager decides ("Adhish Sekar approved your trip to Mumbai"). |
+| 27 | **Roles did not separate duties.** The operator could approve spend, so the people who run the agents could also release money. | Approving is a finance-manager action only. The operator runs the agents, audit and quality and cannot approve. Finance gets an emergency stop (revoke the policy) because they are the people who would want it. A "Who can do what" table on the Policy page states it. The demo studio's approve buttons stay as a labelled stand-in for the finance manager. |
+| 28 | **Finance could not slice spend.** | Spend by cost centre, bookings per requester, activity search by city or cost centre, and CSV export of the filtered activity. |
+| 29 | **Employee had no sense of the trip's life cycle.** | Each trip shows Departs in N days / Departs today / In progress / Completed, total cost, and how much is still awaiting approval. |
+| 30 | **The trip form accepted anything.** | Live validation (dates in the past, return before departure, a hotel with zero nights), a live estimate of the legs and the most the policy allows without approval, and a clear refusal for a city the policy does not cover (it needs a trip authorization from finance). |
+
+## Still open (honest list)
+- **Single destination.** The signed policy covers one city (Mumbai). A real deployment would hold approved destinations per employee grade and a per-trip authorization; the form refuses other cities rather than pretending.
+- **No traveller-versus-requester split.** An employee books for themselves. Booking on behalf of a colleague, and a line-manager step before finance, are the next approval chain.
+- **Schedules are mock supplier data** with fixed times of day; dates are real, flight inventory is not. Times are shown as local airport times.
+- **Cancelling or changing an approved trip** is not modelled.
+- Sign-in is still the labelled demo (see the first-round limits above).

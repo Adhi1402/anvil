@@ -1,5 +1,6 @@
 """Buyer-side agents. They DISCOVER supplier agents via Agent Cards and talk A2A (JSON-RPC)."""
 from agents.a2a import discover, send, clear_discovery
+from anvil import trip as T
 
 TRIP_ORCHESTRATOR = "trip-orchestrator"
 
@@ -66,7 +67,7 @@ def _rule_pick(mandate, kind, offers):
 def replan(mandate, action, violations=""):
     """Correction loop: re-search the same supplier, then choose an offer that fixes the stated violations."""
     kind = _KIND[action["type"]]
-    supplier, offers = _offers(kind, {"destination": mandate["destination"], "max_price": mandate.get(_CAP[action["type"]])})
+    supplier, offers = _offers(kind, {"destination": mandate["destination"], "max_price": mandate.get(_CAP[action["type"]]), **T.search_params(action)})
     if not offers:
         return None
     meta = None
@@ -76,8 +77,9 @@ def replan(mandate, action, violations=""):
         best, why = _rule_pick(mandate, kind, offers), "rule-based fallback (Gemini unavailable)"
     if not best:
         return None
+    keep = {k: action[k] for k in ("leg", "trip", "pickup") if k in action}          # the corrected booking is for the same trip
     return {"type": action["type"], "supplier": supplier, "replan_reason": violations,
-            "replan_rationale": why, **({"replan_telemetry": meta} if meta else {}), **best}
+            "replan_rationale": why, **({"replan_telemetry": meta} if meta else {}), **best, **keep}
 
 
 def hotel_agent(mandate):

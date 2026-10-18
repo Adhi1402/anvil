@@ -1,6 +1,8 @@
 """Counterfactual receipts: what an action would have cost the company if nothing had stopped it.
 Computed deterministically from the action vs the mandate (no model), so every figure is checkable."""
 
+from anvil.trip import nights
+
 CAP_FIELD = {"book_flight": "max_flight_price_usd", "book_hotel": "max_hotel_per_night_usd",
              "book_transport": "max_transport_usd"}
 
@@ -73,7 +75,11 @@ def counterfactual(mandate, action, verdict):
     summary = (f"If this had gone through, the company would have spent ${total:,.0f}"
                + (f" (${over:,.0f} over the cap)" if over else "")
                + (": " + "; ".join(f) if f else "") + ".")
-    return {"total_usd": total, "cap_usd": cap, "over_cap_usd": over, "findings": f, "categories": categories(mandate, action),
+    n = nights(action)
+    stake = total * n
+    if n > 1:
+        summary = summary[:-1] + f" for {n} nights (${stake:,.0f} in all)."
+    return {"total_usd": total, "stake_usd": stake, "cap_usd": cap, "over_cap_usd": over, "findings": f, "categories": categories(mandate, action),
             "outcome": stopped, "summary": summary}
 
 
@@ -85,8 +91,8 @@ def impact_summary(entries):
         if not cf:
             continue
         if e["verdict"] == "DRIFT":
-            s["blocked_usd"] += cf["total_usd"]; s["blocked_count"] += 1
+            s["blocked_usd"] += cf.get("stake_usd", cf["total_usd"]); s["blocked_count"] += 1
         elif e["verdict"] == "REVIEW":
-            s["held_usd"] += cf["total_usd"]; s["held_count"] += 1
+            s["held_usd"] += cf.get("stake_usd", cf["total_usd"]); s["held_count"] += 1
         s["over_cap_usd"] += cf["over_cap_usd"]
     return s

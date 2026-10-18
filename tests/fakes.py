@@ -121,7 +121,7 @@ class FakeGemini:
                 want = next((i for i, o in enumerate(offers) if "business" in req and o.get("class") == "business"), None)
                 if want is None:
                     want = next(i for i, o in enumerate(offers) if ok(o))
-                legs.append({"kind": kind, "choice": want, "rationale": "fake planner"})
+                legs.append({"leg": kind, "kind": kind, "choice": want, "rationale": "fake planner"})
             return _Resp(json.dumps({"legs": legs}))
         if "OFFERS (0-indexed)" in contents:
             offers = [json.loads(l.split(": ", 1)[1]) for l in contents.split("OFFERS (0-indexed):\n")[1].strip().splitlines()]

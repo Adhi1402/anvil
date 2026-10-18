@@ -330,6 +330,57 @@ check("controls: revoke is active", _store.get_controls()["mandate_revoked"] is 
 fake_db.collection("controls").docs["state"]["revoked_until"] = 1
 check("controls: an expired revoke stops applying by itself", _store.get_controls()["mandate_revoked"] is False)
 
+# --- trips: dates, round trips, legs, the trip-policy gate, withdrawing a request
+from datetime import date, timedelta
+from anvil import trip as trip_mod
+D = lambda n: (date.today() + timedelta(days=n)).isoformat()
+fake_db.collection("provenance").docs.clear()
+fake_db.collection("controls").docs.clear()
+RT = {"type": "round_trip", "origin": "Bengaluru", "destination": "Mumbai", "depart_date": D(20), "return_date": D(23), "hotel": True, "transport": True,
+      "purpose": "Client meeting", "cost_center": "CC-1042", "justification": "Quarterly review"}
+code, evs = stream("/stream/request", {"text": "Round trip to Mumbai for a client meeting.", "requester": "Rahul", "trip": RT})
+st = [e for e in evs if e["event"] == "step"]
+check("trip: a round trip plans five legs in travel order", code == 200 and [e["step"]["action"]["leg"] for e in st] == ["flight_out", "transfer_out", "hotel", "transfer_back", "flight_back"], [e.get("step", {}).get("action", {}).get("leg") for e in st])
+check("trip: a compliant round trip is approved leg by leg", [e["step"]["audit"]["verdict"] for e in st] == ["MATCH"] * 5, [e["step"]["audit"]["verdict"] for e in st])
+out, back, hotel = st[0]["step"]["action"], st[4]["step"]["action"], st[2]["step"]["action"]
+check("trip: flights carry numbers, dates and times", out["depart"][:10] == D(20) and back["depart"][:10] == D(23) and out["arrive"] > out["depart"] and out["flight_no"] and out["to_city"] == "Mumbai" and back["to_city"] == "Bengaluru", (out, back))
+check("trip: return flight keeps the trip's destination for policy purposes", back["destination"] == "Mumbai")
+check("trip: hotel nights come from the dates and the receipt covers every night", hotel["nights"] == 3 and st[2]["step"]["cart_mandate"]["total"] == hotel["price"] * 3 and st[2]["step"]["cart_mandate"]["items"][0]["quantity"] == 3)
+check("trip: airport transfers are timed from the flights", st[1]["step"]["action"]["pickup"] > out["arrive"] and st[3]["step"]["action"]["pickup"] < back["depart"])
+check("trip: every action carries the trip, requester and cost centre", all(e["step"]["action"]["trip"]["cost_center"] == "CC-1042" and e["step"]["action"]["trip"]["purpose"] == "Client meeting" for e in st))
+logged = list(fake_db.collection("provenance").stream())
+check("trip: the trip is stored on each provenance entry", len(logged) == 5 and all(l.to_dict()["action"].get("trip", {}).get("depart_date") == D(20) for l in logged))
+check("trip: the auditor never sees schedule fields", all(k not in trip_mod.strip(out) for k in trip_mod.SCHEDULE_KEYS))
+
+code, evs = stream("/stream/request", {"text": "One way, no hotel.", "requester": "Rahul", "trip": {**RT, "type": "one_way", "return_date": None, "hotel": False, "transport": False}})
+check("trip: a one-way trip without hotel or transfers is one flight", [e["step"]["action"]["leg"] for e in evs if e["event"] == "step"] == ["flight_out"])
+
+fake_db.collection("provenance").docs.clear()
+code, evs = stream("/stream/request", {"text": "Urgent trip tomorrow.", "requester": "Rahul", "trip": {**RT, "depart_date": D(2), "return_date": D(4)}})
+st = [e["step"] for e in evs if e["event"] == "step"]
+check("trip: a late booking is escalated, not blocked", [x["audit"]["verdict"] for x in st] == ["REVIEW"] * 5 and "days' notice" in st[0]["audit"]["explanation"] and not any("cart_mandate" in x for x in st), [x["audit"]["verdict"] for x in st])
+code, evs = stream("/stream/request", {"text": "Long stay.", "requester": "Rahul", "trip": {**RT, "depart_date": D(20), "return_date": D(40)}})
+check("trip: a trip longer than the limit is escalated", any("-day limit" in " ".join(e["step"]["audit"]["violations"]) for e in evs if e["event"] == "step"))
+for label, bad in [("a past departure", {"depart_date": D(-1)}), ("a return before departure", {"return_date": D(10)}), ("a hotel with no nights", {"return_date": D(20)}),
+                   ("the same origin and destination", {"origin": "Mumbai"}), ("no dates", {"depart_date": None})]:
+    check(f"trip: {label} is a 400", c.post("/stream/request", json={"text": "x", "trip": {**RT, **bad}}).status_code == 400)
+
+pend = [d for d in fake_db.collection("provenance").stream() if d.to_dict()["verdict"] == "REVIEW"]
+rid = pend[0].id
+check("withdraw: only the person who asked may withdraw", c.post("/withdraw/" + rid, json={"requester": "Someone Else"}).status_code == 403)
+r = c.post("/withdraw/" + rid, json={"requester": "rahul"})
+check("withdraw: the requester can take the request back", r.status_code == 200 and r.get_json()["withdrawn"] is True)
+check("withdraw: it cannot be withdrawn twice or approved afterwards", c.post("/withdraw/" + rid, json={"requester": "Rahul"}).status_code == 409 and c.post("/approve/" + rid, json={"approver": "Adhish Sekar"}).status_code == 409)
+wd = [d.to_dict() for d in fake_db.collection("provenance").stream() if d.to_dict()["action"].get("re_consent_for") == rid][0]
+check("withdraw: recorded as a rejection by the requester, with the trip kept", wd["verdict"] == "REJECTED" and wd["action"]["withdrawn"] and wd["requester"] == "Rahul" and wd["action"]["trip"]["id"])
+ap = c.post("/approve/" + pend[1].id, json={"approver": "Adhish Sekar", "comment": "ok"})
+check("trip: approving an escalated leg issues a receipt for the stay", ap.status_code == 200)
+opts = c.get("/api/trip-options").get_json()
+check("trip options: cities, purposes, cost centres and the rules", "Bengaluru" in opts["origins"] and opts["policy"]["min_advance_days"] == 7 and "CC-1042" in opts["cost_centers"])
+a2 = c.post("/v1/authorize", json={"action": {"type": "book_hotel", "vendor": "Taj", "price": 280, "refundable": True, "nights": 2, "check_in": D(30), "check_out": D(32), "hack": 1},
+                                  "requester": "Rahul"}).get_json()
+check("authorize: schedule fields pass through, unknown keys do not", a2["steps"][0]["action"].get("nights") == 2 and "hack" not in a2["steps"][0]["action"] and a2["cart_mandate"]["total"] == 560)
+
 # --- tampered intent must stop /run
 from data.store import get_mandate
 doc = fake_db.collection("mandates").docs["mandate-001"]

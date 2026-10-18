@@ -69,9 +69,10 @@ def cart_mandate(intent, action):
         "cartId": uuid.uuid4().hex,
         "intentMandateId": intent["mandateId"],      # links the booking back to the human approval
         "merchant": action["supplier"],
-        "items": [{"name": action.get("vendor"), "kind": action["type"], "amount": action["price"]}],
+        "items": [{"name": action.get("vendor"), "kind": action["type"], "amount": action["price"],
+                   "quantity": max(1, int(action.get("nights") or 1)) if action["type"] == "book_hotel" else 1}],
         "currency": "USD",
-        "total": action["price"],
+        "total": action["price"] * (max(1, int(action.get("nights") or 1)) if action["type"] == "book_hotel" else 1),
         "authorizedBy": intent["user"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

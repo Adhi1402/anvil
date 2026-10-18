@@ -2,19 +2,21 @@
 Self-contained so it can be deployed on its own:  gcloud run deploy anvil-suppliers --source suppliers"""
 import os
 import uuid
+from datetime import date, datetime, timedelta
 from flask import Flask, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
+# out / back = scheduled departure time of day on the outbound and the return sector; mins = block time
 FLIGHTS = [
-    {"vendor": "Air India", "price": 480, "class": "economy", "refundable": True, "destination": "Mumbai"},
-    {"vendor": "Air India", "price": 520, "class": "economy", "refundable": True, "destination": "Mumbai"},
-    {"vendor": "IndiGo", "price": 430, "class": "economy", "refundable": False, "destination": "Mumbai"},
-    {"vendor": "IndiGo", "price": 495, "class": "economy", "refundable": True, "destination": "Mumbai"},
-    {"vendor": "Emirates", "price": 590, "class": "business", "refundable": True, "destination": "Mumbai"},
-    {"vendor": "Vistara", "price": 540, "class": "economy", "refundable": True, "destination": "Mumbai"},
+    {"vendor": "Air India", "price": 480, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "AI 631", "out": "06:10", "back": "19:30", "mins": 130},
+    {"vendor": "Air India", "price": 520, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "AI 657", "out": "18:40", "back": "08:05", "mins": 135},
+    {"vendor": "IndiGo", "price": 430, "class": "economy", "refundable": False, "destination": "Mumbai", "no": "6E 204", "out": "07:25", "back": "21:10", "mins": 125},
+    {"vendor": "IndiGo", "price": 495, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "6E 512", "out": "13:50", "back": "16:20", "mins": 130},
+    {"vendor": "Emirates", "price": 590, "class": "business", "refundable": True, "destination": "Mumbai", "no": "EK 508", "out": "22:10", "back": "10:45", "mins": 140},
+    {"vendor": "Vistara", "price": 540, "class": "economy", "refundable": True, "destination": "Mumbai", "no": "UK 861", "out": "09:30", "back": "12:55", "mins": 130},
 ]
 HOTELS = [
     {"vendor": "Taj", "price": 280, "refundable": True, "destination": "Mumbai"},
@@ -32,25 +34,61 @@ def _search(inventory, data):
             and (cap is None or o["price"] <= cap)]
 
 
+def _flights(data):
+    """Offers as scheduled flights when a date is given (outbound: origin -> destination, return: destination -> origin)."""
+    found = _search(FLIGHTS, data)
+    if not data.get("date"):
+        return [{k: v for k, v in o.items() if k not in ("no", "out", "back", "mins")} for o in found]
+    back, origin, dest = data.get("direction") == "return", data.get("origin") or "Bengaluru", data.get("destination")
+    out = []
+    for o in found:
+        start = datetime.fromisoformat(f"{str(data['date'])[:10]}T{o['back'] if back else o['out']}")
+        row = {k: v for k, v in o.items() if k not in ("no", "out", "back", "mins")}
+        row.update({"flight_no": o["no"], "from_city": dest if back else origin, "to_city": origin if back else dest,
+                    "depart": start.strftime("%Y-%m-%dT%H:%M"), "arrive": (start + timedelta(minutes=o["mins"])).strftime("%Y-%m-%dT%H:%M")})
+        out.append(row)
+    pref = data.get("pref")
+    band = {"morning": (0, 12), "afternoon": (12, 18), "evening": (18, 24)}.get(pref)
+    if band:                                                   # the traveller's preferred time of day first, otherwise by price
+        out.sort(key=lambda r: (not band[0] <= int(r["depart"][11:13]) < band[1], r["price"]))
+    return out
+
+
+def _hotels(data):
+    found = _search(HOTELS, data)
+    if not (data.get("check_in") and data.get("check_out")):
+        return found
+    n = max(1, (date.fromisoformat(str(data["check_out"])[:10]) - date.fromisoformat(str(data["check_in"])[:10])).days)
+    return [{**o, "check_in": str(data["check_in"])[:10], "check_out": str(data["check_out"])[:10], "nights": n, "total": o["price"] * n} for o in found]
+
+
+def _transfers(data):
+    found = _search(TRANSPORT, data)
+    if not data.get("date"):
+        return found
+    route = "Hotel to airport" if data.get("direction") == "return" else "Airport to hotel"
+    return [{**o, "route": route} for o in found]
+
+
 AGENTS = {
     "flight": {
         "supplier": "supplier-agent-1", "name": "Flight Supplier Agent",
         "description": "Returns flight offers for a destination under a price cap.",
         "skill": {"id": "flight_search", "name": "Flight search", "tags": ["travel", "flights"],
                   "description": "Find flights to a destination under a max price."},
-        "search": lambda d: _search(FLIGHTS, d)},
+        "search": _flights},
     "hotel": {
         "supplier": "hotel-supplier-1", "name": "Hotel Supplier Agent",
         "description": "Returns hotel offers (price per night) for a destination under a price cap.",
         "skill": {"id": "hotel_search", "name": "Hotel search", "tags": ["travel", "hotels"],
                   "description": "Find hotels in a destination under a max nightly price."},
-        "search": lambda d: _search(HOTELS, d)},
+        "search": _hotels},
     "transport": {
         "supplier": "transport-supplier-1", "name": "Transport Supplier Agent",
         "description": "Returns ground-transport offers for a destination.",
         "skill": {"id": "transport_search", "name": "Transport search", "tags": ["travel", "transport"],
                   "description": "Find ground transport in a destination."},
-        "search": lambda d: _search(TRANSPORT, d)},
+        "search": _transfers},
 }
 
 

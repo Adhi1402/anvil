@@ -61,7 +61,7 @@ def metrics_summary(entries, controls=None, mandate=None):
     for c in carts:
         for it in c["items"]:
             k = it["kind"].replace("book_", "")
-            spend[k] += it["amount"]; count[k] += 1; largest[k] = max(largest[k], it["amount"])
+            spend[k] += it["amount"] * it.get("quantity", 1); count[k] += 1; largest[k] = max(largest[k], it["amount"])
     caps = {}
     if mandate:
         caps = {"flight": mandate.get("max_flight_price_usd"), "hotel": mandate.get("max_hotel_per_night_usd"),
