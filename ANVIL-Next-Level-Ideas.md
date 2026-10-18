@@ -1,5 +1,7 @@
 # Anvil — Next-Level Ideas
 
+> **Status note (2026-10-18):** this is the *idea log* from planning. Most Tier-1/2 items are now built (counterfactual receipts, failure taxonomy, adversarial set, kill switch, governance metrics, second domain, enforcement contrast, guided demo). What is still only an idea: policy what-if, mandate lint, earned autonomy, cross-model referee, phone-approval QR. For what actually exists, see `docs/handover/`.
+
 Ideas to raise Anvil from "working demo" to "hard to beat" in the AI Builder Cup (Future of work and enterprise productivity track, deadline Oct 18).
 
 Legend for effort: **S** = under 2h · **M** = 2–4h · **L** = 4h+. "Needs Gemini" means it can't be verified without Vertex credentials.

@@ -1,5 +1,7 @@
 # START HERE — Teammate onboarding for Anvil
 
+> **Status note (2026-10-18):** this guide was written on Oct 17, before the planner agent, the official A2A/AP2 work, the Live/Showcase/Replay UI and the second domain. Setup steps are still valid; **numbers and screens are superseded**. Current results (travel 19/19 vs 10/19 on 26 scenarios, software 8/8 vs 6/8) and the current UI are in `README.md` and `docs/handover/`. Start from `docs/handover/README.md`.
+
 Welcome! This guide takes you from "nothing installed" to "running the whole project on your laptop", and explains what the project is so you can talk about it confidently. Do the parts in order; each step has a **✅ check** so you know it worked.
 
 - **Project:** Anvil — a governance layer for autonomous spending agents (Travel & Expense). A manager signs a *mandate*; AI agents plan a trip; **Gemini audits every action** against the mandate and says `MATCH` (allow), `REVIEW` (ask the manager) or `DRIFT` (block, then the agent re-plans itself).
@@ -107,7 +109,7 @@ python -m anvil.audit
 ```powershell
 python -m anvil.eval
 ```
-→ **The scoreboard.** Five scenarios through Anvil *and* a rules-only baseline. Expect: Anvil catches 4/4 violations, baseline 1/4, **0 false blocks**. (Takes ~30 s: five Gemini calls.)
+→ **The scoreboard.** Five scenarios through Anvil *and* a rules-only baseline. Expect (today): Anvil catches 19/19 travel violations, rules-only 10/19, **0 false blocks**. (Takes ~30 s: five Gemini calls.)
 
 ```powershell
 python main.py

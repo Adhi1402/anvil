@@ -29,7 +29,7 @@ To show the mechanism is not travel-specific, the same eval also scores **softwa
 | Problem and why it matters | AI agents already spend company money; nothing checks that they stayed inside what a human approved (deck slides 2-3) |
 | How the solution addresses it | Signed mandate → Gemini audit of every action → deterministic enforcement → self-correction → signed receipt + tamper-evident trail |
 | Google AI integration | **Gemini 2.5 Flash on Vertex AI** is the auditor, the booking agent's planner, and the corrector (`anvil/gemini.py`, `anvil/audit.py`, `agents/planner.py`) |
-| Working prototype | Live dashboard (Mission Control + Governance) driving real Gemini calls |
+| Working prototype | Live dashboard (Live, Governance, Showcase, Replay) driving real Gemini calls |
 | Deployed on GCP | Cloud Run (`anvil`, `anvil-suppliers`), Firestore, Firebase Hosting |
 
 ## The app: four tabs
@@ -39,7 +39,7 @@ To show the mechanism is not travel-specific, the same eval also scores **softwa
 - **Replay** is a seven-step **guided demo** with captions (autopilot on the live system) and **recorded runs** captured from the real system (`scripts/record_runs.py`), replayed with their original timing so they work even without the network or Gemini.
 
 ## What is in the product
-- **Mission Control:** type a request in plain English; a Gemini booking agent discovers supplier agents over A2A, chooses offers, and every proposal is audited live. A flow diagram, event stream and decision cards show each step as it happens. Rogue-agent simulations (fare split, hidden add-on, fake approval note, prompt injection) show enforcement.
+- **Showcase (and the Live tab's request box):** type a request in plain English; a Gemini booking agent discovers supplier agents over A2A, chooses offers, and every proposal is audited live. A flow diagram, event stream and decision cards show each step as it happens. Rogue-agent simulations (fare split, hidden add-on, fake approval note, prompt injection) show enforcement.
 - **Governance console:** agent scorecards and trust scores, **kill switch** (pause an agent or revoke the mandate; blocked without a model call and logged to the chain), spend vs authorized caps, failure taxonomy, **cost of governing** (tokens, latency p50/p95, cost per audit, return on governance) and a downloadable **evidence pack**.
 - **Counterfactual receipts:** every block states what it would have cost ("$590, business class instead of economy, carrier not preferred"), computed deterministically from the action and mandate, not by the model.
 
