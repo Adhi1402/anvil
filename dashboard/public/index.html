@@ -246,7 +246,7 @@
       <div class="brand"><svg viewBox="0 0 32 32" fill="none"><path d="M5 8h22l-3 6h-5v4h4l2 6H9l2-6h4v-4h-5z" fill="#7C9BFF"/></svg>ANVIL</div>
       <div class="small">Spend control for autonomous agents · Acme Travel &amp; Spend (demo workspace)</div>
       <form id="li-form" autocomplete="off">
-        <label for="li-email">Work email</label><input id="li-email" type="email" placeholder="priya@acme.example">
+        <label for="li-email">Work email</label><input id="li-email" type="email" placeholder="rahul@acme.example">
         <label for="li-pass">Password</label><input id="li-pass" type="password" placeholder="demo">
         <div class="small" id="li-err" style="color:var(--red);min-height:18px;margin-top:6px"></div>
         <button class="btn primary" style="width:100%;margin-top:6px" type="submit">Sign in</button>
@@ -256,9 +256,9 @@
     </div>
     <div class="card">
       <h3>Choose a demo account</h3>
-      <button class="persona" data-p="priya"><span class="avatar">P</span><span><b>Priya Sharma</b><span class="d">Employee · submits spend requests and sees how Anvil decides</span></span></button>
-      <button class="persona" data-p="rahul"><span class="avatar">R</span><span><b>Rahul Mehta</b><span class="d">Finance manager · approves or rejects escalated requests</span></span></button>
-      <button class="persona" data-p="anika"><span class="avatar">A</span><span><b>Anika Rao</b><span class="d">Platform operator · pauses agents, revokes the mandate, governance</span></span></button>
+      <button class="persona" data-p="rahul"><span class="avatar">R</span><span><b>Rahul</b><span class="d">Employee · submits spend requests and sees how Anvil decides</span></span></button>
+      <button class="persona" data-p="swathy"><span class="avatar">S</span><span><b>Swathy S</b><span class="d">Finance manager · approves or rejects escalated requests</span></span></button>
+      <button class="persona" data-p="adhish"><span class="avatar">A</span><span><b>Adhish Sekar</b><span class="d">Platform operator · pauses agents, revokes the mandate, governance</span></span></button>
     </div>
   </div>
 </div>
@@ -853,9 +853,9 @@ function renderRunSummary(ev) {
 
 /* ---------- demo sign-in (UI only, not real authentication) ---------- */
 const PERSONAS = {
-  priya: { email: "priya@acme.example", name: "Priya Sharma", short: "Priya S.", role: "employee", title: "Employee" },
-  rahul: { email: "rahul@acme.example", name: "Rahul Mehta", short: "Rahul M.", role: "manager", title: "Finance manager" },
-  anika: { email: "anika@acme.example", name: "Anika Rao", short: "Anika R.", role: "operator", title: "Operator" },
+  rahul: { email: "rahul@acme.example", name: "Rahul", short: "Rahul", role: "employee", title: "Employee" },
+  swathy: { email: "swathy@acme.example", name: "Swathy S", short: "Swathy S.", role: "manager", title: "Finance manager" },
+  adhish: { email: "adhish@acme.example", name: "Adhish Sekar", short: "Adhish S.", role: "operator", title: "Operator" },
 };
 const GUEST = { email: "", name: "Guest judge", short: "Guest", role: "operator", title: "Guest (all access)" };
 const ROLES = { employee: { approve: false, operate: false }, manager: { approve: true, operate: false }, operator: { approve: true, operate: true } };
