@@ -1,3 +1,5 @@
+> **Superseded:** the current beginner guide, narration and timing are in `submission/DEMO-VIDEO-GUIDE.md`. Notes below describe an earlier version of the app.
+
 # Anvil — 3-minute demo script (short form)
 
 > **The full, current version (UI flow, timings, voice-over text, fallbacks) is in `docs/handover/01-UI-FLOW-AND-DEMO-PITCH.md`.** This file is the one-page cheat sheet. The app is role-based since the UI rewrite (see `docs/UX-AUDIT.md`).

@@ -5,3 +5,7 @@ __pycache__/
 firebase-debug.log
 .firebase/
 node_modules/
+
+# demo recordings and exported decks are large; keep them out of git
+demo_recording/
+submission/*.mp4

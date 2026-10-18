@@ -39,6 +39,7 @@ D = lambda n: (date.today() + timedelta(days=n)).isoformat()
 base = args.url.split("?")[0].split("#")[0]
 q = ("&api=" + args.api) if args.api else ""
 timeline = []
+waits = []                       # (start, end) seconds of long Gemini waits: shown as a labelled time-lapse so the video length does not depend on model latency
 T0 = None
 
 INIT = r"""
@@ -57,6 +58,7 @@ INIT = r"""
     addEventListener('mouseup', () => { c.style.transform = 'translate(-50%,-50%) scale(1)'; c.style.background = 'rgba(52,81,209,.30)'; }, true);
   };
   if (document.readyState !== 'loading') add(); else document.addEventListener('DOMContentLoaded', add);
+  window.__tl = on => { let b = document.getElementById('__tl'); if (!b) { b = document.createElement('div'); b.id = '__tl'; b.style.cssText = 'position:fixed;z-index:2147483646;top:16px;right:18px;background:rgba(181,71,8,.95);color:#fff;padding:6px 14px;border-radius:999px;font:700 14px system-ui,sans-serif;letter-spacing:.04em'; b.textContent = 'TIME-LAPSE: Gemini is working'; document.documentElement.appendChild(b); } b.style.display = on ? 'block' : 'none'; };
   window.__cap = t => { const e = document.getElementById('__cap'); if (!e) return; if (!t) { e.style.opacity = 0; return; } e.textContent = t; e.style.opacity = 1; };
 })();
 """
@@ -79,7 +81,11 @@ def uncap(page):
 
 
 def shot(page, name):
+    """Screenshots for the deck are taken without the video caption on top."""
+    page.evaluate("(() => { const e = document.getElementById('__cap'); if (e) { e.dataset.o = e.style.opacity; e.style.opacity = 0; } const c = document.getElementById('__cur'); if (c) c.style.visibility = 'hidden'; })()")
+    wait(page, 350)
     page.screenshot(path=os.path.join(SHOTS, name + ".png"))
+    page.evaluate("(() => { const e = document.getElementById('__cap'); if (e && e.dataset.o !== undefined) e.style.opacity = e.dataset.o; const c = document.getElementById('__cur'); if (c) c.style.visibility = 'visible'; })()")
 
 
 def click(page, selector, pause=450, **kw):
@@ -119,8 +125,8 @@ with sync_playwright() as p:
     browser = p.chromium.launch(channel=args.browser or None, headless=True)
     ctx = browser.new_context(viewport={"width": W, "height": H}, record_video_dir=os.path.join(OUT, "raw"), record_video_size={"width": W, "height": H})
     ctx.add_init_script(INIT)
-    page = ctx.new_page()
     T0 = time.time()
+    page = ctx.new_page()
 
     # ---------------------------------------------------------------- 1. the idea (sign-in page)
     page.goto(f"{base}{('?' + q[1:]) if q else ''}")
@@ -155,7 +161,11 @@ with sync_playwright() as p:
     click(page, "#t-go")
     wait(page, 2500)
     shot(page, "03_guard_start")
+    w0 = time.time() - T0
+    page.evaluate("window.__tl && window.__tl(true)")
     page.wait_for_function("/Sent for approval|Approved\\.|blocked/i.test(document.querySelector('#gl-end')?.innerText||'')", timeout=180000)
+    page.evaluate("window.__tl && window.__tl(false)")
+    waits.append((w0, time.time() - T0))
     wait(page, 1500)
     scroll_to(page, "#gl-legs", "start")
     shot(page, "04_guard_done")
@@ -268,7 +278,11 @@ with sync_playwright() as p:
     wait(page, 2500)
     click(page, "#enf")
     click(page, "#d-rogue [data-scn='Business-class upgrade']")
+    w0 = time.time() - T0
+    page.evaluate("window.__tl && window.__tl(true)")
     page.wait_for_selector("#runsum:has-text('Run summary')", timeout=180000)
+    page.evaluate("window.__tl && window.__tl(false)")
+    waits.append((w0, time.time() - T0))
     wait(page, 1500)
     scroll_to(page, "#stagebox", "start")
     cap(page, "With Anvil: blocked, with the reason, the agent corrects itself, and the new booking is audited again before it is allowed", "Blocked, self-corrected, re-audited")
@@ -286,21 +300,47 @@ with sync_playwright() as p:
     raw = video.path()
     browser.close()
 
-webm = os.path.join(OUT, "anvil-demo.webm")
+webm = os.path.join(OUT, "anvil-demo-full.webm")
 shutil.move(raw, webm)
 shutil.rmtree(os.path.join(OUT, "raw"), ignore_errors=True)
 mp4 = os.path.join(OUT, "anvil-demo.mp4")
+TARGET = 20                      # seconds a long Gemini wait is compressed to
+cuts = []                        # (start, end, factor)
+for a0, b0 in waits:
+    d = b0 - a0
+    if d > TARGET + 4:
+        cuts.append((a0, b0, d / TARGET))
+
+
+def newt(t):
+    """Time in the final video of an instant in the raw recording."""
+    out = t
+    for a0, b0, f in cuts:
+        if t >= b0:
+            out -= (b0 - a0) * (1 - 1 / f)
+        elif t > a0:
+            out -= (t - a0) * (1 - 1 / f)
+    return out
+
+
 try:
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", webm, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", mp4], check=True)
+    pts = [0.0] + [x for a0, b0, f in cuts for x in (a0, b0)] + [total + 5]
+    segs = [(pts[i], pts[i + 1], next((f for a0, b0, f in cuts if a0 == pts[i] and b0 == pts[i + 1]), 1.0)) for i in range(len(pts) - 1)]
+    live = [(a0, b0, f) for a0, b0, f in segs if b0 > a0]
+    filt = "".join(f"[0:v]trim=start={a0:.3f}:end={b0:.3f},setpts=(PTS-STARTPTS)/{f:.4f}[v{i}];" for i, (a0, b0, f) in enumerate(live)) + "".join(f"[v{i}]" for i in range(len(live))) + f"concat=n={len(live)}:v=1:a=0[out]"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", webm, "-filter_complex", filt, "-map", "[out]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", mp4], check=True)
 except Exception as e:
-    mp4 = f"(not made: {e}; use the .webm)"
+    mp4 = f"(not made: {e}; use anvil-demo-full.webm)"
+final_len = newt(total)
 
 with open(os.path.join(OUT, "timeline.md"), "w", encoding="utf-8") as f:
     f.write("# Demo recording timeline (use it to time your voice-over)\n\n| Time | On screen (caption) | What is happening |\n|---|---|---|\n")
     for t, text, note in timeline:
+        t = newt(t)
         f.write(f"| {int(t // 60)}:{int(t % 60):02d} | {text} | {note} |\n")
-    f.write(f"\nTotal length: {int(total // 60)}:{int(total % 60):02d}\n")
-print(f"\nDone. Total length {int(total // 60)}:{int(total % 60):02d} (limit 4:00)")
-print("Video:", webm, "\nMP4:  ", mp4, "\nTimeline:", os.path.join(OUT, "timeline.md"), "\nScreenshots:", SHOTS)
-if total > 235:
+    f.write(f"\nTotal length: {int(final_len // 60)}:{int(final_len % 60):02d}\n")
+    f.write("\nThe long Gemini waits are shown as a labelled time-lapse so the video stays short; narrate over them.\n")
+print(f"\nDone. Total length {int(final_len // 60)}:{int(final_len % 60):02d} (limit 4:00)")
+print("VIDEO TO USE:", mp4, "\nFull-speed original:", webm, "\nTimeline:", os.path.join(OUT, "timeline.md"), "\nScreenshots:", SHOTS)
+if final_len > 235:
     print("WARNING: longer than 3:55. Re-run with --speed 0.8 to shorten the pauses.")
