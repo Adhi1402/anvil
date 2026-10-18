@@ -10,7 +10,8 @@ POLICY = {"min_advance_days": 7, "max_trip_days": 14}
 # Cities the company travels to and from. A trip between any two of them is within policy on destination; the signed spending
 # limits, refundability, class and supplier rules still apply to every booking. (A real deployment holds this list per grade.)
 CITIES = ["Mumbai", "Delhi", "Bengaluru", "Chennai", "Hyderabad", "Pune", "Kolkata", "Ahmedabad", "Jaipur", "Goa", "Dubai", "Singapore"]
-ORIGINS = DESTINATIONS = CITIES
+ORIGINS = CITIES                       # any city can be a starting point
+DESTINATIONS = list(CITIES)            # the approved destinations: replaced from the signed policy (see apply_rules)
 AIRPORTS = {"Mumbai": ("BOM", "Chhatrapati Shivaji Intl (BOM)"), "Delhi": ("DEL", "Indira Gandhi Intl (DEL)"), "Bengaluru": ("BLR", "Kempegowda Intl (BLR)"),
             "Chennai": ("MAA", "Chennai Intl (MAA)"), "Hyderabad": ("HYD", "Rajiv Gandhi Intl (HYD)"), "Pune": ("PNQ", "Pune Airport (PNQ)"),
             "Kolkata": ("CCU", "Netaji Subhas Chandra Bose Intl (CCU)"), "Ahmedabad": ("AMD", "Sardar Vallabhbhai Patel Intl (AMD)"), "Jaipur": ("JAI", "Jaipur Intl (JAI)"),
@@ -33,6 +34,14 @@ def policy_action(mandate, action):
     if t.get("destination") in DESTINATIONS and action.get("destination") == t["destination"] and mandate.get("destination"):
         return {**action, "destination": mandate["destination"]}
     return action
+
+
+def apply_rules(rules):
+    """Load the trip rules of the current signed policy into this process (called at the start of every request)."""
+    if not rules:
+        return
+    POLICY["min_advance_days"], POLICY["max_trip_days"] = rules["min_advance_days"], rules["max_trip_days"]
+    DESTINATIONS[:] = [c for c in rules["destinations"] if c in CITIES]
 
 
 def strip(action):
@@ -83,8 +92,10 @@ def normalize(t, requester=None):
     origin, dest = str(t.get("origin") or "").strip()[:40], str(t.get("destination") or "").strip()[:40]
     if not origin or not dest:
         raise ValueError("Choose where you are travelling from and to.")
-    if origin not in CITIES or dest not in CITIES:
-        raise ValueError(f"{dest if dest not in CITIES else origin} is not on the approved city list.")
+    if origin not in CITIES:
+        raise ValueError(f"{origin} is not a city we can book from.")
+    if dest not in DESTINATIONS:
+        raise ValueError(f"{dest} is not an approved destination in the current travel policy. Ask finance to approve it.")
     if origin.lower() == dest.lower():
         raise ValueError("The origin and destination are the same.")
     pref = lambda k: t.get(k) if t.get(k) in PREFS else "any"

@@ -398,3 +398,7 @@ details.card>summary::after{content:"+";float:right;color:var(--muted)} details.
 @keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
 @media (prefers-reduced-motion:reduce){.cube,.fl,.rl,.shield.pulse,.moons i,.rn.warn .dot,.glive.scan::after{animation:none!important}.tilt{transform:none!important}}
 @media (max-width:560px){.optp{margin:0 6px 10px}.cube-scene{height:150px;transform:scale(.8)}.hg-stats>div{flex:1}}
+
+.modal p{white-space:pre-line}
+.tr-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px} .tr-pre{max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:12px;margin-top:6px} .tr-pre .pm{color:var(--accent)}
+@media (max-width:960px){.tr-cols{grid-template-columns:1fr}}

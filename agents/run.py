@@ -50,7 +50,7 @@ def _pick_with_gemini(mandate, action, violations, offers):
     prompt = _PICK_PROMPT.format(
         mandate=json.dumps(mandate, indent=2), action=json.dumps(action), violations=violations or "(none given)",
         offers="\n".join(f"{i}: {json.dumps(o)}" for i, o in enumerate(offers)))
-    out, meta = call_json(prompt, _PICK_SCHEMA)
+    out, meta = call_json(prompt, _PICK_SCHEMA, purpose="correct")
     i = out["choice"]
     return (offers[i], out["rationale"], meta) if 0 <= i < len(offers) else (None, out["rationale"], meta)
 

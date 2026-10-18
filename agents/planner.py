@@ -120,7 +120,7 @@ def choose(mandate, request_text, gathered):
             continue
         lines.append(f"[{lid.upper()}]")
         lines += [f"{i}: {json.dumps(o)}" for i, o in enumerate(gathered["legs"][lid]["offers"])]
-    out, meta = call_json(_PROMPT.format(request=request_text, trip=describe(gathered["trip"]), brief=brief(mandate), offers="\n".join(lines)), _SCHEMA)
+    out, meta = call_json(_PROMPT.format(request=request_text, trip=describe(gathered["trip"]), brief=brief(mandate), offers="\n".join(lines)), _SCHEMA, purpose="plan")
     picks = {}
     for leg in out["legs"]:
         g = gathered["legs"].get(leg["leg"])

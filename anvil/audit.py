@@ -88,7 +88,7 @@ def audit(mandate, action):
     contents = PROMPT.format(mandate=json.dumps(mandate, indent=2), action=json.dumps(action, indent=2))
     key = _cache_key(mandate, action)
     try:
-        verdict, meta = call_json(contents, SCHEMA)
+        verdict, meta = call_json(contents, SCHEMA, purpose="audit")
     except Exception:
         cached = _cache_get(key)                       # last good verdict for this exact input (temp 0 => stable)
         if cached:

@@ -405,6 +405,47 @@ check("options: every entry records what was considered and why the agent chose"
 fl = next(e for e in ents if e["action"]["leg"] == "flight_out")
 check("routes: flights carry airport codes and transfers say where from and to", fl["action"]["from_code"] == "BLR" and fl["action"]["to_code"] == "BOM" and next(e for e in ents if e["action"]["leg"] == "transfer_out")["action"]["to_place"].endswith("Mumbai"))
 
+# --- LLM traces: every model call is stored with its full input and output
+traces = c.get("/api/traces?limit=200").get_json()
+purposes = {x["purpose"] for x in traces}
+check("traces: audits and plans are both recorded", {"audit", "plan"} <= purposes, purposes)
+full = c.get("/api/traces/" + next(x["id"] for x in traces if x["purpose"] == "audit")).get_json()
+check("traces: a trace holds the whole prompt, the raw response and the parsed output", "MANDATE:" in full["prompt"] and "ACTION:" in full["prompt"] and full["response"] and full["parsed"]["verdict"] in ("MATCH", "REVIEW", "DRIFT") and full["prompt_tokens"] > 0)
+check("traces: the audit prompt never contained the candidate list or schedule fields", "considered" not in full["prompt"])
+check("traces: the list is summaries only (no prompt text)", "prompt" not in traces[0] and traces[0]["prompt_chars"] > 100)
+pl = next(x for x in traces if x["purpose"] == "plan")
+check("traces: a plan trace is linked to its trip and requester", pl["ctx"].get("trip") and pl["ctx"].get("requester") == "Rahul" and c.get("/api/traces?trip=" + pl["ctx"]["trip"]).get_json())
+ent = next(d.to_dict() for d in fake_db.collection("provenance").stream() if (d.to_dict().get("telemetry") or {}).get("trace_id"))
+check("traces: a decision entry points at the call that produced it", c.get("/api/traces/" + ent["telemetry"]["trace_id"]).status_code == 200)
+check("traces: unknown id is 404", c.get("/api/traces/nope").status_code == 404)
+
+# --- editable policy
+p0 = c.get("/api/policy").get_json()
+check("policy: current version, signed, with options and rules", p0["version"] == 1 and p0["signature_valid"] and p0["trip_rules"]["min_advance_days"] == 7 and "Kolkata" in p0["options"]["cities"])
+check("policy: only a finance manager can change it", c.post("/api/policy", json={"editor": "Rahul", "role": "employee", "comment": "x", "constraints": {"max_flight_price_usd": 900}}).status_code == 403)
+check("policy: a change needs a reason", c.post("/api/policy", json={"editor": "Adhish Sekar", "role": "manager", "constraints": {"max_flight_price_usd": 700}}).status_code == 400)
+check("policy: out-of-range values are refused", c.post("/api/policy", json={"editor": "Adhish Sekar", "role": "manager", "comment": "x", "constraints": {"max_flight_price_usd": 5}}).status_code == 400)
+check("policy: an empty change is refused", c.post("/api/policy", json={"editor": "Adhish Sekar", "role": "manager", "comment": "x", "constraints": {"max_flight_price_usd": 600}}).status_code == 400)
+r = c.post("/api/policy", json={"editor": "Adhish Sekar", "role": "manager", "comment": "Q4 client travel needs a higher fare ceiling", "base_version": 1,
+                                "constraints": {"max_flight_price_usd": 700, "preferred_airlines": ["Air India", "IndiGo", "Vistara"]},
+                                "trip_rules": {"min_advance_days": 3, "destinations": ["Mumbai", "Delhi"]}})
+p1 = r.get_json()
+check("policy: a valid change becomes version 2, re-signed", r.status_code == 200 and p1["version"] == 2 and p1["signature_valid"] and p1["constraints"]["max_flight_price_usd"] == 700, p1.get("error"))
+check("policy: the change list says what changed", any("flight limit" in x and "600 → 700" in x for x in p1["changes"]) and any("added" not in x and "removed Goa" in x or "removed" in x for x in p1["changes"]))
+check("policy: history keeps who, when, why and what", p1["history"][0]["editor"] == "Adhish Sekar" and "Q4" in p1["history"][0]["comment"] and p1["history"][0]["changes"])
+check("policy: a stale editor is refused (409)", c.post("/api/policy", json={"editor": "Adhish Sekar", "role": "manager", "comment": "x", "base_version": 1, "constraints": {"max_flight_price_usd": 800}}).status_code == 409)
+ctl = [d.to_dict() for d in fake_db.collection("provenance").stream() if d.to_dict()["action"].get("control") == "policy_update"]
+check("policy: the change is written to the tamper-evident chain", len(ctl) == 1 and ctl[0]["action"]["version"] == 2 and "Q4" in ctl[0]["explanation"] and c.get("/api/verify").get_json()["chain_ok"])
+check("policy: the signed mandate itself carries the new limit", c.get("/api/mandate").get_json()["mandate"]["constraints"]["max_flight_price_usd"] == 700 and c.get("/api/mandate").get_json()["signature_valid"])
+opts2 = c.get("/api/trip-options").get_json()
+check("policy: trip options follow the policy (destinations, notice)", opts2["destinations"] == ["Mumbai", "Delhi"] and opts2["policy"]["min_advance_days"] == 3)
+check("policy: a destination that is no longer approved is refused", c.post("/stream/request", json={"text": "x", "trip": {**RT, "destination": "Goa"}}).status_code == 400)
+code, evs = stream("/stream/request", {"text": "Notice rule now 3 days.", "requester": "Rahul", "trip": {**RT, "destination": "Delhi", "depart_date": D(5), "return_date": D(7)}})
+check("policy: a trip with 5 days' notice is now within the rules", [e["step"]["audit"]["verdict"] for e in evs if e["event"] == "step"] == ["MATCH"] * 5, [e["step"]["audit"]["verdict"] for e in evs if e["event"] == "step"])
+# restore for the rest of the run
+c.post("/api/policy", json={"editor": "Adhish Sekar", "role": "manager", "comment": "restore", "constraints": {"max_flight_price_usd": 600, "preferred_airlines": ["Air India", "IndiGo"]},
+                            "trip_rules": {"min_advance_days": 7, "destinations": p0["trip_rules"]["destinations"]}})
+
 # --- tampered intent must stop /run
 from data.store import get_mandate
 doc = fake_db.collection("mandates").docs["mandate-001"]

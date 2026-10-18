@@ -19,8 +19,8 @@ const $ = id => document.getElementById(id) || (STAGE && STAGE.querySelector("#"
 /* ============================== state ============================== */
 const S = {
   session: null, viewAs: "operator", rows: [], controls: {}, metrics: null, mandate: null, ap2: null, a2a: null,
-  live: false, page: null, open: new Set(), localRes: {},
-  f: { status: "all", q: "", sim: store.get("anvil-showsim") !== "0", reqStatus: "all", apTab: "wait", demoTab: "lab" },
+  live: false, page: null, open: new Set(), localRes: {}, policy: null, traces: null, traceFull: {}, traceLoading: {},
+  f: { status: "all", q: "", sim: store.get("anvil-showsim") !== "0", reqStatus: "all", apTab: "wait", demoTab: "lab", trPurpose: "all", trQ: "" },
 };
 const PERSONAS = {
   rahul: { email: "rahul@acme.example", name: "Rahul", role: "employee", title: "Employee" },
@@ -53,7 +53,7 @@ const ICONS = {
   home: "M3 6h18M3 12h18M3 18h12", plus: "M12 5v14M5 12h14", approvals: "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3", activity: "M22 12h-4l-3 9L9 3l-3 9H2",
   spend: "M12 20V10M18 20V4M6 20v-4", policy: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
   overview: "M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z", agents: "M4 4h16v16H4zM9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3",
-  audit: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z", quality: "M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8.21 13.89 7 23l5-3 5 3-1.21-9.12", demo: "M5 3l14 9-14 9z",
+  audit: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z", traces: "M4 6h16M4 12h10M4 18h13M19 15l2 3-2 3", quality: "M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8.21 13.89 7 23l5-3 5 3-1.21-9.12", demo: "M5 3l14 9-14 9z",
 };
 const ico = n => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[n]}"/></svg>`;
 
@@ -97,6 +97,7 @@ const NAV = [
   { id: "policy", label: "Policy", group: "Work", roles: ["employee", "manager", "operator"] },
   { id: "agents", label: "Agents", group: "Govern", roles: ["operator"] },
   { id: "audit", label: "Audit trail", group: "Govern", roles: ["operator"] },
+  { id: "traces", label: "AI traces", group: "Govern", roles: ["operator"] },
   { id: "quality", label: "Quality", group: "Govern", roles: ["operator"] },
   { id: "demo", label: "Demo studio", group: "Demo", roles: ["operator"] },
 ];
@@ -189,6 +190,7 @@ async function loadMetrics() {
   try {
     if (!S.mandate) { try { S.mandate = await api("/api/mandate"); } catch {} }
     if (!S.tripOpts) { try { S.tripOpts = await api("/api/trip-options"); } catch {} }
+    if (!S.policy && !S.policyLoading) { S.policyLoading = true; loadPolicy().finally(() => { S.policyLoading = false; }); }
     S.metrics = await api("/api/metrics"); S.controls = S.metrics.controls || {};
     if (effRole() === "operator") { try { S.ap2 = await api("/api/ap2"); } catch {} if (!S.a2a) { try { S.a2a = await api("/api/a2a"); } catch {} } }
   } catch (e) { S.metricsErr = e.message; }
@@ -203,7 +205,8 @@ function techBlock(e) {
   const chain = d.length ? [d[0].from.split("@")[0], ...d.map(h => h.to)].join(" → ") : "";
   return `<div class="chainline">${e.ap2?.verified ? `AP2 mandate chain <span class="mono">${esc(a.chain_sha256.slice(0, 10))}…</span> verified by Google's SDK · ${usd(a.amount_minor / 100)} to ${esc(a.payee)}${a.manager_override ? " · <b>manager override of an AP2 limit</b>" : ""} <button class="link" data-act="ap2verify" data-id="${esc(e.id)}">Verify again</button><span id="ap2r-${esc(e.id)}"></span><br>` : ""}
     ${chain ? `Delegation: ${esc(chain)}<br>` : ""}${e.cart_mandate ? `Cart Mandate <span class="mono">${esc(e.cart_mandate.cartId.slice(0, 10))}…</span> · ${usd(e.cart_mandate.total)}<br>` : ""}
-    ${e.telemetry ? `Gemini audit: ${(e.telemetry.latency_ms / 1000).toFixed(1)}s · ${e.telemetry.prompt_tokens + e.telemetry.output_tokens} tokens · ${usd4(e.telemetry.cost_usd)}<br>` : ""}
+    ${e.telemetry ? `Gemini audit: ${(e.telemetry.latency_ms / 1000).toFixed(1)}s · ${e.telemetry.prompt_tokens + e.telemetry.output_tokens} tokens · ${usd4(e.telemetry.cost_usd)}${e.telemetry.trace_id ? ` · <button class="link" data-act="trace" data-id="${esc(e.telemetry.trace_id)}">Open the Gemini call</button>` : ""}<br>` : ""}
+    ${e.agent_telemetry?.trace_id ? `Agent call: ${(e.agent_telemetry.latency_ms / 1000).toFixed(1)}s · ${usd4(e.agent_telemetry.cost_usd)} · <button class="link" data-act="trace" data-id="${esc(e.agent_telemetry.trace_id)}">Open the agent's call</button><br>` : ""}
     ${e.hash ? `<span class="mono">hash ${esc(e.hash.slice(0, 16))}… ← ${esc((e.prev_hash || "").slice(0, 8))}…</span>` : ""}</div>`;
 }
 function detailBlock(e, res, tech) {
@@ -729,7 +732,8 @@ PAGES.spend = {
 PAGES.policy = {
   title: () => "Policy", sub: () => "The rules your finance team signed. Agents can only act inside them, and anything beyond them needs a person.",
   mount(el) {
-    el.innerHTML = `<div class="grid2"><div class="card"><div class="card-h"><h3>Travel &amp; expense policy</h3><span id="p-sig"></span></div><div class="card-b" id="p-terms"></div></div>
+    $("page-actions").innerHTML = can("approve") ? `<button class="btn primary" data-act="editpolicy">Edit policy</button>` : "";
+    el.innerHTML = `<div class="card" id="p-edit" style="margin-bottom:16px" hidden></div><div class="grid2"><div class="card"><div class="card-h"><h3>Travel &amp; expense policy</h3><span id="p-sig"></span></div><div class="card-b" id="p-terms"></div></div>
       <div class="card"><div class="card-h"><h3>How each request is decided</h3></div><div class="card-b stack">
         <div class="line">${badge({ cls: "ok", label: "Approved" })}<span>Matches the policy in wording and intent. A signed receipt is issued.</span></div>
         <div class="line">${badge({ cls: "warn", label: "Needs approval" })}<span>Not forbidden, but beyond what was authorized, such as a fare over the limit. A finance manager decides.</span></div>
@@ -737,15 +741,18 @@ PAGES.policy = {
         <p class="small" style="margin:6px 0 0">Anvil reads the whole request, including notes. Text claiming “the manager pre-approved this” never counts: only the signed policy and a person's decision do.</p></div></div></div>
       <div class="card" style="margin-top:16px"><div class="card-h"><h3>Who can do what</h3></div><div class="card-b tscroll"><table><tr><th>Role</th><th>Can</th><th>Cannot</th></tr>
         <tr><td><b>Employee</b></td><td>Plan trips, follow them, withdraw a pending request</td><td>Approve anything, see other people's trips</td></tr>
-        <tr><td><b>Finance manager</b></td><td>Approve or reject exceptions, see all activity and spend by cost centre, stop all spending in an emergency</td><td>Decide their own request, change agent settings</td></tr>
-        <tr><td><b>Platform operator</b></td><td>Pause agents, read the audit trail, export evidence, review quality</td><td>Approve spend: the people who run the agents cannot also release money</td></tr></table>
+        <tr><td><b>Finance manager</b></td><td>Approve or reject exceptions, edit and sign the travel policy, see all activity and spend by cost centre, stop all spending in an emergency</td><td>Decide their own request, change agent settings, see the model traces</td></tr>
+        <tr><td><b>Platform operator</b></td><td>Pause agents, read the audit trail and the model traces, export evidence, review quality</td><td>Approve spend or change the policy: the people who run the agents cannot also release money or set the limits</td></tr></table>
         <p class="small" style="margin:10px 0 0">In this demo, sign-in only chooses which screens you see. A production deployment connects your company sign-in so the server enforces these rules.</p></div></div>
+      <div class="card" id="p-hist" style="margin-top:16px"></div>
       <div id="p-ops" class="stack" style="margin-top:16px"></div>`;
   },
   update() {
     const t = mandateTerms(); if (!$("p-terms")) return;
+    if ($("p-hist")) $("p-hist").innerHTML = policyHistoryHtml();
+    if (S.f.policyEdit && S.policy && $("p-edit").hidden) { $("p-edit").innerHTML = policyFormHtml(); $("p-edit").hidden = false; }
     $("p-sig").innerHTML = t ? `<span class="badge ${t.valid ? "ok" : "bad"}">${t.valid ? "Signature verified" : "Signature invalid"}</span>` : "";
-    $("p-terms").innerHTML = t ? `<dl class="terms">${t.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}${tripRules().map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}<dt>Signed by</dt><dd>${esc(t.m.user)} <span class="muted" style="font-weight:400">(finance owner)</span></dd></dl>` : `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
+    $("p-terms").innerHTML = t ? `<dl class="terms">${t.rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}${tripRules().map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}<dt>Signed by</dt><dd>${esc(t.m.user)}</dd><dt>Version</dt><dd>${esc(t.m.version || 1)}</dd></dl>` : `<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>`;
     if (effRole() !== "operator") { $("p-ops").innerHTML = ""; return; }
     const c = S.controls || {}, I = S.ap2, A = S.metrics?.ap2 || {};
     $("p-ops").innerHTML = `<div class="grid2"><div class="card"><div class="card-h"><h3>Policy controls</h3></div><div class="card-b">
@@ -827,6 +834,103 @@ PAGES.audit = {
         ${e.counterfactual ? `<div class="chainline">${esc(e.counterfactual.summary)}</div>` : ""}${techBlock(e)}</div>`; }).join("") || emptyBox("No entries in this session yet");
   },
 };
+
+/* ============================== policy editing (finance manager) ============================== */
+const fmtList = v => Array.isArray(v) ? v.join(", ") : v === true ? "yes" : v === false ? "no" : String(v);
+async function loadPolicy() { try { S.policy = await api("/api/policy"); } catch (e) { S.policyErr = e.message; } refresh(); }
+function policyFormHtml() {
+  const P = S.policy, c = P.constraints, r = P.trip_rules, o = P.options, num = (id, k, v, spec) => `<label class="field">${esc(spec.label)}<input type="number" id="${id}" min="${spec.min}" max="${spec.max}" value="${v}"><span class="hint">Allowed ${spec.min} to ${spec.max}</span></label>`;
+  return `<div class="card-h"><h3>Edit policy</h3><span class="small">Now version ${P.version}. A change is signed as version ${P.version + 1} and applies to new requests straight away.</span></div><div class="card-b">
+    <div class="tf-grid">
+      ${num("pe-flight", "max_flight_price_usd", c.max_flight_price_usd, o.limits.max_flight_price_usd)}${num("pe-hotel", "max_hotel_per_night_usd", c.max_hotel_per_night_usd, o.limits.max_hotel_per_night_usd)}
+      ${num("pe-transport", "max_transport_usd", c.max_transport_usd, o.limits.max_transport_usd)}
+      <label class="field">Flight class${sel("pe-class", o.classes.map(k => [k, k[0].toUpperCase() + k.slice(1)]), c.flight_class)}</label>
+      <div class="field span2"><span>Preferred airlines</span><div class="chips" id="pe-air">${o.airlines.map(a => `<button type="button" class="chip" data-air="${esc(a)}" aria-pressed="${c.preferred_airlines.includes(a)}">${esc(a)}</button>`).join("")}</div></div>
+      <div class="field"><label class="check"><input type="checkbox" id="pe-ref" ${c.refundable_required ? "checked" : ""}> Refundable fares and rooms required</label></div>
+      <label class="field">Book by<input type="date" id="pe-bookby" value="${esc(c.book_by || "")}" min="${isoDay(new Date())}"></label>
+      ${num("pe-notice", "min_advance_days", r.min_advance_days, o.rules.min_advance_days)}${num("pe-maxdays", "max_trip_days", r.max_trip_days, o.rules.max_trip_days)}
+      <div class="field span2"><span>Approved destinations</span><div class="chips" id="pe-cities">${o.cities.map(x => `<button type="button" class="chip" data-city="${esc(x)}" aria-pressed="${r.destinations.includes(x)}">${esc(x)}</button>`).join("")}</div></div>
+      <label class="field span2">Why are you changing it? (recorded with the change)<textarea id="pe-why" maxlength="300" placeholder="e.g. Q4 client travel needs a higher fare ceiling"></textarea></label></div>
+    <div class="est-msg bad" id="pe-err" hidden></div>
+    <div class="row" style="margin-top:14px"><button class="btn primary" data-act="savepolicy">Review and sign</button><button class="btn" data-act="cancelpolicy">Cancel</button></div></div>`;
+}
+function policyDraft() {
+  const P = S.policy, c = P.constraints, r = P.trip_rules, con = {}, rul = {}, n = id => Number($(id).value), air = [...document.querySelectorAll("#pe-air [aria-pressed=true]")].map(b => b.dataset.air), cities = [...document.querySelectorAll("#pe-cities [aria-pressed=true]")].map(b => b.dataset.city);
+  const set = (o, k, v, old) => { if (JSON.stringify(v) !== JSON.stringify(old)) o[k] = v; };
+  set(con, "max_flight_price_usd", n("pe-flight"), c.max_flight_price_usd); set(con, "max_hotel_per_night_usd", n("pe-hotel"), c.max_hotel_per_night_usd); set(con, "max_transport_usd", n("pe-transport"), c.max_transport_usd);
+  set(con, "flight_class", $("pe-class").value, c.flight_class); set(con, "preferred_airlines", air, c.preferred_airlines); set(con, "refundable_required", $("pe-ref").checked, !!c.refundable_required); if ($("pe-bookby").value) set(con, "book_by", $("pe-bookby").value, c.book_by);
+  set(rul, "min_advance_days", n("pe-notice"), r.min_advance_days); set(rul, "max_trip_days", n("pe-maxdays"), r.max_trip_days); set(rul, "destinations", cities, r.destinations);
+  const lines = [...Object.entries(con).map(([k, v]) => `${({ max_flight_price_usd: "Flight limit", max_hotel_per_night_usd: "Hotel limit per night", max_transport_usd: "Transport limit", flight_class: "Flight class", preferred_airlines: "Preferred airlines", refundable_required: "Refundable required", book_by: "Book by" })[k]}: ${fmtList(c[k])} → ${fmtList(v)}`),
+    ...Object.entries(rul).map(([k, v]) => k === "destinations" ? `Destinations: ${[...v.filter(x => !r.destinations.includes(x)).map(x => "+" + x), ...r.destinations.filter(x => !v.includes(x)).map(x => "−" + x)].join(" ")}` : `${k === "min_advance_days" ? "Notice (days)" : "Longest trip (days)"}: ${r[k]} → ${v}`)];
+  return { con, rul, lines };
+}
+async function savePolicy() {
+  const err = $("pe-err"), d = policyDraft(); err.hidden = true;
+  if (!d.lines.length) { err.textContent = "Nothing has changed yet."; err.hidden = false; return; }
+  if (!$("pe-why").value.trim()) { err.textContent = "Say why you are changing the policy: the reason is recorded with the change."; err.hidden = false; $("pe-why").focus(); return; }
+  if (!(await confirmDlg(`Sign policy version ${S.policy.version + 1}?`, d.lines.join("\n"), "Sign and publish"))) return;
+  try {
+    S.policy = await post("/api/policy", { editor: myName(), role: effRole(), comment: $("pe-why").value.trim(), base_version: S.policy.version, constraints: d.con, trip_rules: d.rul });
+    S.mandate = null; S.tripOpts = null; await loadMetrics(); S.f.policyEdit = false; mountPage();
+    toast(`Policy version ${S.policy.version} is signed and live. New requests use it immediately.`);
+  } catch (e) { err.textContent = e.message; err.hidden = false; }
+}
+function policyHistoryHtml() {
+  const P = S.policy; if (!P) return S.policyErr ? errBox(S.policyErr, "reloadpolicy") : `<div class="skeleton"></div><div class="skeleton"></div>`;
+  const row = h => `<div class="item"><span class="mark" style="--mk:var(--accent)"></span><div class="body"><div class="t">Version ${h.version} <span class="muted" style="font-weight:400">· ${esc(h.editor)} · ${esc(fmtWhen(h.ts))}</span></div>
+    <ul class="reasons" style="margin-top:4px">${(h.changes || []).map(x => `<li>${esc(x)}</li>`).join("")}</ul><p class="small" style="margin:6px 0 0">Reason: “${esc(h.comment)}”</p></div></div>`;
+  const sync = P.ap2 && !P.ap2.in_sync ? `<div class="impact warn" style="margin:12px 18px"><b>AP2 payment limits are out of date.</b> The signed AP2 open mandates still carry the earlier limits (${Object.entries(P.ap2.open_mandate_limits).map(([k, v]) => `${k} ${usd(v)}`).join(", ")}). They are issued with the manager's private key, which is not on the server, so they need to be re-issued. Until then AP2 verification is skipped and Anvil's own checks continue to enforce the new limits.</div>` : "";
+  return `<div class="card-h"><h3>Policy history</h3><span class="badge ${P.signature_valid ? "ok" : "bad"}">${P.signature_valid ? "Version " + P.version + " · signature verified" : "Signature invalid"}</span></div>${sync}
+    <div class="list">${P.history.map(row).join("")}<div class="item"><span class="mark"></span><div class="body"><div class="t">Version 1 <span class="muted" style="font-weight:400">· original policy</span></div><p class="small" style="margin:4px 0 0">Signed when the workspace was set up.</p></div></div></div>`;
+}
+
+/* ============================== page: AI traces (operator) ============================== */
+const TR_PURPOSE = { audit: ["Audit", "info"], plan: ["Plan", "ok"], correct: ["Correction", "warn"], llm: ["Call", "info"] };
+const traceOutcome = t => { const p = t.parsed || t.brief; if (t.status === "error") return { cls: "bad", label: "Error" }; if (t.outcome) return t.outcome;
+  if (p?.verdict) return { cls: COLORCLS[p.verdict] || "info", label: LABELS[p.verdict] || p.verdict }; if (p?.legs || p?.legs_n) return { cls: "ok", label: plural(p.legs?.length ?? p.legs_n, "leg") + " chosen" }; if (p && "choice" in p) return { cls: p.choice >= 0 ? "ok" : "warn", label: p.choice >= 0 ? `Offer #${p.choice}` : "No offer" }; return { cls: "info", label: "OK" }; };
+const prettyJson = s => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s || ""; } };
+const markPrompt = s => esc(s).replace(/^([A-Z][A-Z ()0-9\-]{3,}:|OFFERS[^\n]*|VIOLATIONS:|TRIP:|Rules:|MANDATE:|ACTION:|EMPLOYEE REQUEST:)/gm, m => `<b class="pm">${m}</b>`);
+function traceDetail(t) {
+  const f = S.traceFull[t.id]; if (!f) return `<div class="detail"><div class="skeleton"></div><div class="skeleton"></div></div>`;
+  const ctx = f.ctx || {};
+  return `<div class="detail trace-detail"><dl class="terms" style="margin-bottom:12px"><dt>Model</dt><dd>${esc(f.model)} · temperature ${esc(f.temperature ?? 0)} · ${plural(f.attempts || 1, "attempt")}</dd><dt>Tokens</dt><dd>${(f.prompt_tokens || 0).toLocaleString()} in · ${(f.output_tokens || 0).toLocaleString()} out (thinking included) · ${usd4(f.cost_usd)}</dd>
+    <dt>Latency</dt><dd>${((f.latency_ms || 0) / 1000).toFixed(2)} s</dd>${ctx.requester ? `<dt>For</dt><dd>${esc(ctx.requester)}${ctx.origin === "simulated" ? " (simulated)" : ""}</dd>` : ""}${ctx.trip ? `<dt>Trip</dt><dd class="mono">${esc(ctx.trip)}${ctx.leg ? " · " + esc(ctx.leg) : ""}</dd>` : ""}${ctx.request ? `<dt>Request</dt><dd style="font-weight:400">“${esc(ctx.request)}”</dd>` : ""}${f.error ? `<dt>Error</dt><dd style="color:var(--bad)">${esc(f.error)}</dd>` : ""}</dl>
+    <div class="tr-cols"><div><div class="row between"><b>Input sent to Gemini</b><button class="btn sm" data-act="copy" data-from="tp-${esc(t.id)}">Copy</button></div><pre class="code tr-pre" id="tp-${esc(t.id)}">${markPrompt(f.prompt || "")}</pre></div>
+      <div><div class="row between"><b>Output returned</b><button class="btn sm" data-act="copy" data-from="to-${esc(t.id)}">Copy</button></div><pre class="code tr-pre" id="to-${esc(t.id)}">${esc(f.status === "error" ? "(no output: the call failed)" : prettyJson(f.response))}</pre></div></div></div>`;
+}
+function traceRow(t) {
+  const [pl, pc] = TR_PURPOSE[t.purpose] || TR_PURPOSE.llm, o = traceOutcome(t), key = "tr:" + t.id, open = S.open.has(key), c = t.ctx || {};
+  return `<div class="item ${o.cls} clickable" data-act="toggle" data-id="${esc(key)}" role="button" tabindex="0" aria-expanded="${open}"><span class="mark"></span><div class="body"><div class="t"><span class="tag ${pc}">${pl}</span> ${esc(c.label || (t.purpose === "audit" ? "Audit of a booking" : t.purpose))}</div>
+    <div class="meta"><span title="${esc(new Date(t.ts).toLocaleString())}">${esc(fmtWhen(t.ts))} · ${esc(ago(t.ts))}</span>${c.requester ? `<span>${esc(c.requester)}</span>` : ""}${c.origin === "eval" ? `<span class="tag sim">Evaluation</span>` : c.origin === "simulated" ? `<span class="tag sim">Simulated</span>` : ""}
+      <span>${((t.latency_ms || 0) / 1000).toFixed(1)} s</span><span>${((t.prompt_tokens || 0) + (t.output_tokens || 0)).toLocaleString()} tokens</span><span>${usd4(t.cost_usd)}</span></div>${open ? traceDetail(t) : ""}</div><div class="aside">${badge(o)}</div></div>`;
+}
+async function loadTraces() {
+  try { S.traces = await api("/api/traces?limit=80" + (S.f.trPurpose !== "all" ? "&purpose=" + S.f.trPurpose : "")); S.traceErr = null; } catch (e) { S.traceErr = e.message; }
+  refresh();
+}
+function wantTraceDetails() { [...S.open].filter(k => k.startsWith("tr:")).forEach(async k => { const id = k.slice(3); if (S.traceFull[id] || S.traceLoading[id]) return; S.traceLoading[id] = true;
+  try { S.traceFull[id] = await api("/api/traces/" + id); } catch { S.traceFull[id] = { id, prompt: "", response: "", error: "Could not load this trace." }; } refresh(); }); }
+PAGES.traces = {
+  title: () => "AI traces", sub: () => "Every call Anvil makes to Gemini, with the exact input it was given and the exact output it returned: what it was asked, what it answered, how long it took and what it cost.",
+  mount(el) {
+    $("page-actions").innerHTML = `<button class="btn" data-act="reloadtraces">Refresh</button>`;
+    el.innerHTML = `<div class="kpis" id="tr-kpis"></div><div class="card"><div class="card-h"><div class="chips" id="tr-filters">${[["all", "All calls"], ["audit", "Audits"], ["plan", "Plans"], ["correct", "Corrections"]].map(([k, l]) => `<button class="chip" data-act="trfilter" data-k="${k}" aria-pressed="${S.f.trPurpose === k}">${l}</button>`).join("")}</div>
+      <input class="input" id="tr-q" style="width:240px" placeholder="Search requester, trip, booking" value="${esc(S.f.trQ || "")}" aria-label="Search traces"></div>
+      <div class="card-b small">How to read it: an <b>Audit</b> is Gemini judging one booking against the signed policy. A <b>Plan</b> is the booking agent choosing offers for a trip. A <b>Correction</b> is the agent choosing again after Anvil blocked it. Open a row to see the full text.</div><div id="tr-list" class="list"></div></div>`;
+    $("tr-q").oninput = e => { S.f.trQ = e.target.value; this.update(); };
+    loadTraces();
+  },
+  update() {
+    if (!$("tr-list")) return; const q = (S.f.trQ || "").trim().toLowerCase(), all = S.traces || [];
+    const list = all.filter(t => !q || `${t.ctx?.requester || ""} ${t.ctx?.trip || ""} ${t.ctx?.label || ""} ${t.ctx?.leg || ""}`.toLowerCase().includes(q));
+    const lat = all.map(t => t.latency_ms || 0).sort((a, b) => a - b), tok = all.reduce((s, t) => s + (t.prompt_tokens || 0) + (t.output_tokens || 0), 0), cost = all.reduce((s, t) => s + (t.cost_usd || 0), 0), by = p => all.filter(t => t.purpose === p).length;
+    $("tr-kpis").innerHTML = S.traces ? kpiHtml([["Model calls shown", all.length, `${by("audit")} audits · ${by("plan")} plans · ${by("correct")} corrections`], ["Median response time", lat.length ? (lat[Math.floor(lat.length / 2)] / 1000).toFixed(1) + " s" : "—", "per call"], ["Tokens used", tok.toLocaleString(), "input and output"], ["Cost of these calls", usd4(cost), "Vertex AI list price"]]) : "";
+    const pinned = S.f.traceFocus && !list.some(t => t.id === S.f.traceFocus) && S.traceFull[S.f.traceFocus] ? [S.traceFull[S.f.traceFocus]] : [];
+    $("tr-list").innerHTML = S.traceErr ? errBox(S.traceErr, "reloadtraces") : S.traces ? ((pinned.map(traceRow).join("") + list.map(traceRow).join("")) || emptyBox("No model calls yet", "Plan a trip as an employee and its audits and plans appear here.")) : `<div class="pad"><div class="skeleton"></div><div class="skeleton"></div></div>`;
+    wantTraceDetails();
+  },
+};
+setInterval(() => { if (S.session && S.page === "traces" && !document.hidden) loadTraces(); }, 10000);
 
 /* ============================== page: Quality (operator) ============================== */
 let scoreLoaded = { travel: false, software: false };
@@ -1069,7 +1173,7 @@ setInterval(simTickMaybe, 4000);
 /* ============================== actions (event delegation) ============================== */
 document.addEventListener("click", async ev => {
   const el = ev.target.closest("[data-act]"); if (!el) return; const act = el.dataset.act, id = el.dataset.id;
-  if (act === "toggle") { if (ev.target.closest(".detail,a,input")) return; S.open.has(id) ? S.open.delete(id) : S.open.add(id); refresh(); return; }
+  if (act === "toggle") { if (ev.target.closest(".detail,a,input,button:not([data-act=toggle])")) return; S.open.has(id) ? S.open.delete(id) : S.open.add(id); refresh(); return; }
   if (act === "dismiss-guest") { ss.set("anvil-guest-dismissed", "1"); renderBanners(); return; }
   if (act === "rfilter") { S.f.reqStatus = el.dataset.k; document.querySelectorAll("#h-filters .chip").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === S.f.reqStatus)); refresh(); return; }
   if (act === "afilter") { S.f.status = el.dataset.k; S.f.limit = 40; document.querySelectorAll("#act-filters .chip").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === S.f.status)); refresh(); return; }
@@ -1083,6 +1187,14 @@ document.addEventListener("click", async ev => {
     if (!(await confirmDlg("Withdraw this request?", "Nothing will be booked and the approver will no longer see it. You can plan the trip again at any time.", "Withdraw request", true))) return;
     el.disabled = true; try { for (const i of el.dataset.ids.split(",")) { await post("/withdraw/" + i, { requester: myName() }); S.localRes[i] = { verdict: "REJECTED", by: myName(), comment: "", ts: new Date().toISOString(), withdrawn: true }; } toast("Request withdrawn."); scheduleMetrics(); refresh(); } catch (e) { toast(e.message, true); el.disabled = false; } return; }
   if (act === "newtrip") { openForm(true); return; }
+  if (act === "editpolicy") { if (!S.policy) { toast("The policy is still loading.", true); return; } S.f.policyEdit = true; $("p-edit").innerHTML = policyFormHtml(); $("p-edit").hidden = false; $("p-edit").scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+  if (act === "cancelpolicy") { S.f.policyEdit = false; $("p-edit").hidden = true; $("p-edit").innerHTML = ""; return; }
+  if (act === "savepolicy") { el.disabled = true; await savePolicy(); el.disabled = false; return; }
+  if (act === "reloadpolicy") { S.policyErr = null; loadPolicy(); return; }
+  if (act === "reloadtraces") { S.traceErr = null; loadTraces(); return; }
+  if (act === "trfilter") { S.f.traceFocus = null; S.f.trPurpose = el.dataset.k; document.querySelectorAll("#tr-filters .chip").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === S.f.trPurpose)); S.traces = null; refresh(); loadTraces(); return; }
+  if (act === "trace") { S.f.traceFocus = id; S.f.trPurpose = "all"; S.f.trQ = ""; S.open.add("tr:" + id); go("traces"); return; }
+  if (act === "copy") { const t = document.getElementById(el.dataset.from)?.innerText || ""; try { await navigator.clipboard.writeText(t); toast("Copied."); } catch { toast("Could not copy. Select the text and copy it.", true); } return; }
   if (act === "closeform") { openForm(false); return; }
   if (act === "csv") { exportCsv(); return; }
   if (act === "ap2verify") { el.disabled = true; const out = $("ap2r-" + id); try { const r = await api("/api/ap2/verify/" + id); if (out) out.textContent = r.verified ? ` ✓ re-verified by the SDK: ${usd(r.amount_minor / 100)} to ${r.payee}` : ` ✗ ${r.error}`; } catch (e) { if (out) out.textContent = " ✗ " + e.message; } el.disabled = false; return; }
@@ -1103,6 +1215,7 @@ document.addEventListener("click", async ev => {
   if (act === "rerun") { if (!can("operate")) return; if (!(await confirmDlg("Re-run the live evaluation?", "This sends about 50 requests to Gemini and takes one to two minutes. The scoreboard already shows verified numbers.", "Run now"))) return;
     el.disabled = true; el.textContent = "Running live…"; try { await api("/api/eval?refresh=1&repeats=2"); await loadScores(); toast("Scoreboard refreshed from live Gemini."); } catch (e) { toast(e.message, true); el.disabled = false; el.textContent = "Re-run live (1–2 min)"; } return; }
 });
+document.addEventListener("click", e => { const b = e.target.closest("[data-air],[data-city]"); if (b) b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true"); });
 document.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[data-act=toggle][role=button]")) { e.preventDefault(); e.target.click(); } });
 
 /* ============================== boot ============================== */

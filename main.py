@@ -16,10 +16,12 @@ from agents import planner
 from anvil.audit import audit, rules_baseline
 from anvil import ap2_layer
 from anvil import trip as trip_mod
+from anvil.gemini import set_trace_context, clear_trace_context
+from data import policy as policy_mod
 from anvil.guard import book_with_guard, guard_stream
 from anvil.impact import counterfactual, impact_summary
 from anvil.metrics import metrics_summary
-from data.store import (db, get_mandate, verify_mandate, log_provenance, list_provenance, verify_chain,
+from data.store import (sign_mandate, intent_mandate, db, get_mandate, verify_mandate, log_provenance, list_provenance, verify_chain,
                         delegation_for, cart_mandate, get_controls, set_controls, sim_lease)
 
 app = Flask(__name__)
@@ -145,6 +147,18 @@ def _meta(requester, origin, request_text):
 
 
 def run_stream(intent, proposals, request_text=None, requester=None, origin="user", enforce=True, max_corrections=None):
+    try:
+        yield from _run_stream(intent, proposals, request_text, requester, origin, enforce, max_corrections)
+    finally:
+        clear_trace_context()
+
+
+def _leg_label(a):
+    t = a.get("trip") or {}
+    return f"{trip_mod.LEG_LABEL.get(a.get('leg'), a.get('type', '').replace('book_', '').title())} · {a.get('vendor', '')} ${a.get('price', 0):,.0f}" + (f" · {t['origin']} to {t['destination']}" if t else "")
+
+
+def _run_stream(intent, proposals, request_text=None, requester=None, origin="user", enforce=True, max_corrections=None):
     """The one execution path: proposals [(action, rationale, agent_telemetry)] -> guarded, logged, streamed events.
     Every step is written to the provenance chain the moment it completes, so Firestore listeners update live too.
     enforce=False simulates an UNPROTECTED agent for the demo contrast: nothing is audited, logged or issued; the
@@ -171,6 +185,7 @@ def run_stream(intent, proposals, request_text=None, requester=None, origin="use
         considered = action.pop("considered", None)                # what the agent weighed is recorded on the entry, not audited as part of the action
         leg_meta = {**meta, **({"considered": considered} if considered else {}), **({"rationale": rationale} if rationale and not str(rationale).startswith("scripted") else {})}
         kind = action["type"].replace("book_", "")
+        set_trace_context(requester=meta.get("requester"), origin=origin, trip=(action.get("trip") or {}).get("id"), leg=action.get("leg"), label=_leg_label(action), request=request_text)
         yield _ev("proposal", kind=kind, action=action, rationale=rationale)
         pending_tele = a_tele
         gkw = {} if max_corrections is None else {"max_corrections": max_corrections}
@@ -189,7 +204,10 @@ def run_stream(intent, proposals, request_text=None, requester=None, origin="use
 
 def _verified_intent():
     intent = get_mandate()
-    return intent if verify_mandate(intent) else None
+    if not verify_mandate(intent):
+        return None
+    trip_mod.apply_rules(policy_mod.rules_of(intent))              # trip rules and approved cities come from the signed policy
+    return intent
 
 
 def _stream_response(gen):
@@ -239,11 +257,14 @@ def stream_request():
         for lid, g in gathered["legs"].items():
             yield _ev("discovered", kind=g["kind"], leg=lid, agent=g["card"], via=g["via"], offers=len(g["offers"]), options=planner.considered(mandate, g))
         yield _ev("planning")
+        set_trace_context(requester=requester, origin="user", trip=gathered["trip"]["id"], label=f"Plan {gathered['trip']['origin']} to {gathered['trip']['destination']}", request=text)
         try:
             plan, meta = planner.choose(mandate, text, gathered)
         except Exception as e:
             yield _ev("planner_fallback", message=f"{type(e).__name__}")
             plan, meta = planner.fallback(mandate, gathered), None
+        finally:
+            clear_trace_context()
         proposals = [(a, why, meta if i == 0 else None) for i, (a, why) in enumerate(plan)]
         yield from run_stream(intent, proposals, text, requester=requester, enforce=enforce)
     return _stream_response(gen())
@@ -343,7 +364,8 @@ def withdraw(entry_id):
 @app.route("/api/trip-options")
 def trip_options():
     """What the trip form offers (cities, purposes, cost centres) and the company rules a trip is judged on."""
-    return jsonify({"origins": trip_mod.ORIGINS, "destinations": trip_mod.DESTINATIONS, "purposes": trip_mod.PURPOSES, "cost_centers": trip_mod.COST_CENTERS,
+    _verified_intent()
+    return jsonify({"origins": trip_mod.ORIGINS, "destinations": list(trip_mod.DESTINATIONS), "purposes": trip_mod.PURPOSES, "cost_centers": trip_mod.COST_CENTERS,
                     "policy": trip_mod.POLICY, "today": trip_mod.today().isoformat(), "leg_labels": trip_mod.LEG_LABEL})
 
 
@@ -455,10 +477,13 @@ def sim_tick():
             proposals, text = _scenario_proposals(mandate, what), None
         else:
             gathered = planner.gather_offers(mandate, trip_mod.default_trip(who, days_ahead=random.choice([3, 10, 14, 14, 21, 30, 45]), destination=random.choice(trip_mod.DESTINATIONS), origin=random.choice(trip_mod.ORIGINS[2:6])))
+            set_trace_context(requester=who, origin="simulated", trip=gathered["trip"]["id"], label=f"Plan {gathered['trip']['origin']} to {gathered['trip']['destination']}", request=what)
             try:
                 plan, meta = planner.choose(mandate, what, gathered)
             except Exception:
                 plan, meta = planner.fallback(mandate, gathered), None
+            finally:
+                clear_trace_context()
             proposals, text = [(a, why, meta if i == 0 else None) for i, (a, why) in enumerate(plan)], what
         steps = sum(1 for e in run_stream(intent, proposals, text, requester=who, origin="simulated") if e["event"] == "step")
     except Exception as e:
@@ -480,11 +505,13 @@ def api_eval():
         if cached.exists:
             return jsonify(cached.to_dict()["result"])
     repeats = max(1, min(int(request.args.get("repeats", 1)), 5))
+    set_trace_context(origin="eval", label=f"Evaluation scoreboard ({domain})")
     if domain == "software":
         from data.domains import SOFTWARE_MANDATE, SOFTWARE_SCENARIOS
         result = run_eval(SOFTWARE_MANDATE, SOFTWARE_SCENARIOS, repeats=repeats)
     else:
         result = run_eval(repeats=repeats)
+    clear_trace_context()
     ref.set({"result": result, "ts": datetime.now(timezone.utc).isoformat()})
     return jsonify(result)
 
@@ -623,6 +650,71 @@ def api_verify_tamper():
 @app.route("/api/provenance")
 def api_provenance():
     return jsonify(list_provenance(min(request.args.get("limit", 20, type=int), 300)))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Editable policy (finance manager) and the model-call traces (operator)
+def _policy_state():
+    intent = get_mandate()
+    L = ap2_layer.get()
+    ap2 = None
+    if L.enabled:
+        caps = {k: v["max_usd"] for k, v in L.status()["open_mandates"].items()}
+        want = {"flight": intent["constraints"]["max_flight_price_usd"], "hotel": intent["constraints"]["max_hotel_per_night_usd"], "transport": intent["constraints"]["max_transport_usd"]}
+        ap2 = {"in_sync": all(caps.get(k) == want[k] for k in want), "open_mandate_limits": caps}
+    return {"version": int(intent.get("version") or 1), "constraints": intent["constraints"], "trip_rules": policy_mod.rules_of(intent), "signed_by": intent.get("user"),
+            "issued_at": intent.get("issuedAt"), "signature_valid": verify_mandate(intent), "history": policy_mod.history(db), "ap2": ap2,
+            "options": {"airlines": policy_mod.KNOWN_AIRLINES, "classes": policy_mod.CLASSES, "cities": trip_mod.CITIES,
+                        "limits": {k: {"label": v[0], "min": v[1], "max": v[2]} for k, v in policy_mod.LIMITS.items()},
+                        "rules": {k: {"label": v[0], "min": v[1], "max": v[2]} for k, v in policy_mod.RULES.items()}}}
+
+
+@app.route("/api/policy", methods=["GET", "POST", "OPTIONS"])
+def api_policy():
+    """GET: the current signed policy, its version history and what can be edited. POST (finance manager): change limits or trip rules.
+    The change is validated, re-signed as a new version and written to the audit chain. Demo-level authorisation: the caller states its role."""
+    if request.method == "OPTIONS":
+        return ("", 204)
+    if request.method == "GET":
+        return jsonify(_policy_state())
+    body = request.get_json(silent=True) or {}
+    editor = _clean(body.get("editor"), 40)
+    if body.get("role") != "manager" or not editor:
+        return jsonify({"error": "Only a finance manager can change the policy."}), 403
+    try:
+        m, changes = policy_mod.apply(db, get_mandate(), editor, body.get("comment"), body.get("constraints"), body.get("trip_rules"), body.get("base_version"),
+                                      sign_mandate, intent_mandate, log_provenance)
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 409
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({**_policy_state(), "changes": changes})
+
+
+@app.route("/api/traces")
+def api_traces():
+    """Newest model calls (audit, plan, correct) with sizes and outcome. ?purpose=audit|plan|correct, ?trip=<id>, ?limit=N"""
+    limit = max(1, min(request.args.get("limit", 60, type=int), 200))
+    q = db().collection("llm_traces").order_by("ts", direction=firestore.Query.DESCENDING).limit(400)
+    want, trip = request.args.get("purpose"), request.args.get("trip")
+    out = []
+    for d in q.stream():
+        t = d.to_dict()
+        if (want and t.get("purpose") != want) or (trip and (t.get("ctx") or {}).get("trip") != trip):
+            continue
+        out.append({"id": d.id, **{k: t.get(k) for k in ("ts", "purpose", "model", "status", "latency_ms", "attempts", "prompt_tokens", "output_tokens", "cost_usd", "ctx", "error")},
+                    "brief": {"verdict": (t.get("parsed") or {}).get("verdict"), "legs_n": len((t.get("parsed") or {}).get("legs") or []) or None, "choice": (t.get("parsed") or {}).get("choice")}, "prompt_chars": len(t.get("prompt") or ""), "response_chars": len(t.get("response") or "")})
+        if len(out) >= limit:
+            break
+    return jsonify(out)
+
+
+@app.route("/api/traces/<trace_id>")
+def api_trace(trace_id):
+    doc = db().collection("llm_traces").document(trace_id).get()
+    if not doc.exists:
+        return jsonify({"error": "no such trace"}), 404
+    return jsonify({"id": doc.id, **doc.to_dict()})
 
 
 if __name__ == "__main__":
