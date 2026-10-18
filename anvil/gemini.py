@@ -54,11 +54,19 @@ def clear_trace_context():
 
 
 def _write_trace(doc):
-    """Every model call is stored with its full input and output. Best-effort: tracing must never break a decision."""
+    """Every model call is stored with its full input and output, in two documents: a small summary (what the list reads, so the
+    traces page stays fast) and the body (the full prompt and response, read only when a trace is opened). Best-effort: tracing
+    must never break a decision."""
     try:
         from datetime import datetime, timezone
         from data.store import db
-        db().collection("llm_traces").document(doc["id"]).set({"ts": datetime.now(timezone.utc).isoformat(), **doc})
+        body = {k: doc[k] for k in ("prompt", "response", "parsed") if k in doc}
+        summary = {k: v for k, v in doc.items() if k not in ("prompt", "response", "parsed")}
+        summary.update({"ts": datetime.now(timezone.utc).isoformat(), "prompt_chars": len(doc.get("prompt") or ""), "response_chars": len(doc.get("response") or ""),
+                        "brief": {"verdict": (doc.get("parsed") or {}).get("verdict"), "legs_n": len((doc.get("parsed") or {}).get("legs") or []) or None,
+                                  "choice": (doc.get("parsed") or {}).get("choice") if isinstance(doc.get("parsed"), dict) else None}})
+        db().collection("llm_trace_bodies").document(doc["id"]).set(body)
+        db().collection("llm_traces").document(doc["id"]).set(summary)
     except Exception as e:
         logging.warning("trace not stored: %s", e)
 

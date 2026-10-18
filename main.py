@@ -693,17 +693,16 @@ def api_policy():
 
 @app.route("/api/traces")
 def api_traces():
-    """Newest model calls (audit, plan, correct) with sizes and outcome. ?purpose=audit|plan|correct, ?trip=<id>, ?limit=N"""
+    """Newest model calls (audit, plan, correct) as small summaries. ?purpose=audit|plan|correct, ?trip=<id>, ?limit=N"""
     limit = max(1, min(request.args.get("limit", 60, type=int), 200))
-    q = db().collection("llm_traces").order_by("ts", direction=firestore.Query.DESCENDING).limit(400)
     want, trip = request.args.get("purpose"), request.args.get("trip")
+    q = db().collection("llm_traces").order_by("ts", direction=firestore.Query.DESCENDING).limit(300 if (want or trip) else limit)
     out = []
     for d in q.stream():
         t = d.to_dict()
         if (want and t.get("purpose") != want) or (trip and (t.get("ctx") or {}).get("trip") != trip):
             continue
-        out.append({"id": d.id, **{k: t.get(k) for k in ("ts", "purpose", "model", "status", "latency_ms", "attempts", "prompt_tokens", "output_tokens", "cost_usd", "ctx", "error")},
-                    "brief": {"verdict": (t.get("parsed") or {}).get("verdict"), "legs_n": len((t.get("parsed") or {}).get("legs") or []) or None, "choice": (t.get("parsed") or {}).get("choice")}, "prompt_chars": len(t.get("prompt") or ""), "response_chars": len(t.get("response") or "")})
+        out.append({"id": d.id, **{k: t.get(k) for k in ("ts", "purpose", "model", "status", "latency_ms", "attempts", "prompt_tokens", "output_tokens", "cost_usd", "ctx", "error", "brief", "prompt_chars", "response_chars")}})
         if len(out) >= limit:
             break
     return jsonify(out)
@@ -714,7 +713,8 @@ def api_trace(trace_id):
     doc = db().collection("llm_traces").document(trace_id).get()
     if not doc.exists:
         return jsonify({"error": "no such trace"}), 404
-    return jsonify({"id": doc.id, **doc.to_dict()})
+    body = db().collection("llm_trace_bodies").document(trace_id).get()
+    return jsonify({"id": doc.id, **doc.to_dict(), **(body.to_dict() if body.exists else {})})
 
 
 if __name__ == "__main__":
